@@ -543,14 +543,14 @@
           currentImage = img;
           placeholderText.style.display = 'none';
           drawCanvas();
-          detectAutoBgColor(); // 載入時自動分析去背色
+          detectAutoBgColor();
         };
         img.src = event.target.result;
       };
       reader.readAsDataURL(file);
     }
 
-    /* 🎨 自動分析圖片多個邊界，精準偵測背景顏色 */
+    /* 🎨 自動分析圖片邊界並更新顏色選擇器 */
     function detectAutoBgColor() {
       if (!currentImage) return '#ffffff';
 
@@ -562,7 +562,6 @@
       const tCtx = tempCvs.getContext('2d');
       tCtx.drawImage(currentImage, 0, 0);
 
-      // 採樣邊界 8 個點 (四個角落 + 四條邊的中點)
       const samplePoints = [
         {x: Math.floor(w * 0.02), y: Math.floor(h * 0.02)},
         {x: Math.floor(w * 0.98), y: Math.floor(h * 0.02)},
@@ -578,7 +577,7 @@
 
       samplePoints.forEach(p => {
         const pixel = tCtx.getImageData(p.x, p.y, 1, 1).data;
-        if (pixel[3] > 128) { // 只計算非透明區域
+        if (pixel[3] > 128) {
           rSum += pixel[0];
           gSum += pixel[1];
           bSum += pixel[2];
@@ -653,7 +652,6 @@
     function runAutoDetect() {
       if (!currentImage) return alert('請先上傳圖片！');
 
-      // 觸發邊界自動辨識背景色
       detectAutoBgColor();
 
       const mode = document.getElementById('gridMode').value;
@@ -664,7 +662,7 @@
       }
     }
 
-    /* ⚡ 智慧不規則物件邊界偵測演算法 */
+    /* ⚡ 智慧不規則物件邊界偵測（無重複切割版） */
     function detectSmartObjects() {
       const width = currentImage.width;
       const height = currentImage.height;
@@ -686,7 +684,8 @@
       const bgG = parseInt(hex.slice(3, 5), 16);
       const bgB = parseInt(hex.slice(5, 7), 16);
 
-      const visited = new Uint8Array(width * height);
+      // 1. 前景判定
+      const isForeground = new Uint8Array(width * height);
       for (let i = 0; i < data.length; i += 4) {
         const dist = Math.sqrt(
           Math.pow(data[i] - bgR, 2) +
@@ -694,20 +693,21 @@
           Math.pow(data[i+2] - bgB, 2)
         );
         const pixelIdx = i / 4;
-        visited[pixelIdx] = (dist > tol) ? 1 : 0;
+        isForeground[pixelIdx] = (dist > tol) ? 1 : 0;
       }
 
-      const boxes = [];
-      const visitedBFS = new Uint8Array(width * height);
+      // 2. BFS 連通區域搜尋 (精準連通不跳號)
+      const visited = new Uint8Array(width * height);
+      let rawBoxes = [];
 
-      for (let y = 0; y < height; y += 4) {
-        for (let x = 0; x < width; x += 4) {
+      for (let y = 0; y < height; y += 2) {
+        for (let x = 0; x < width; x += 2) {
           const idx = y * width + x;
-          if (visited[idx] === 1 && visitedBFS[idx] === 0) {
+          if (isForeground[idx] === 1 && visited[idx] === 0) {
             
             let minX = x, maxX = x, minY = y, maxY = y;
             const queue = [x, y];
-            visitedBFS[idx] = 1;
+            visited[idx] = 1;
 
             let head = 0;
             while(head < queue.length) {
@@ -720,8 +720,8 @@
               if (currY > maxY) maxY = currY;
 
               const neighbors = [
-                [currX + 3, currY], [currX - 3, currY],
-                [currX, currY + 3], [currX, currY - 3]
+                [currX + 1, currY], [currX - 1, currY],
+                [currX, currY + 1], [currX, currY - 1]
               ];
 
               for (let n = 0; n < neighbors.length; n++) {
@@ -730,8 +730,8 @@
 
                 if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
                   const nIdx = ny * width + nx;
-                  if (visited[nIdx] === 1 && visitedBFS[nIdx] === 0) {
-                    visitedBFS[nIdx] = 1;
+                  if (isForeground[nIdx] === 1 && visited[nIdx] === 0) {
+                    visited[nIdx] = 1;
                     queue.push(nx, ny);
                   }
                 }
@@ -742,28 +742,54 @@
             const boxH = maxY - minY;
 
             if (boxW > 15 && boxH > 15) {
-              const pMinX = Math.max(0, minX - 5);
-              const pMinY = Math.max(0, minY - 5);
-              const pMaxX = Math.min(width, maxX + 5);
-              const pMaxY = Math.min(height, maxY + 5);
-
-              boxes.push({
-                x: pMinX,
-                y: pMinY,
-                w: pMaxX - pMinX,
-                h: pMaxY - pMinY
+              rawBoxes.push({
+                x: Math.max(0, minX - 4),
+                y: Math.max(0, minY - 4),
+                w: Math.min(width - minX, boxW + 8),
+                h: Math.min(height - minY, boxH + 8)
               });
             }
           }
         }
       }
 
+      // 3. 多重框融合 (過濾/合併重疊的框)
+      let mergedBoxes = [];
+      rawBoxes.forEach(box => {
+        let merged = false;
+        for (let m = 0; m < mergedBoxes.length; m++) {
+          let target = mergedBoxes[m];
+          
+          const overlapX = Math.max(0, Math.min(box.x + box.w, target.x + target.w) - Math.max(box.x, target.x));
+          const overlapY = Math.max(0, Math.min(box.y + box.h, target.y + target.h) - Math.max(box.y, target.y));
+          const overlapArea = overlapX * overlapY;
+
+          if (overlapArea > 0) {
+            const newX = Math.min(box.x, target.x);
+            const newY = Math.min(box.y, target.y);
+            const newMaxX = Math.max(box.x + box.w, target.x + target.w);
+            const newMaxY = Math.max(box.y + box.h, target.y + target.h);
+
+            target.x = newX;
+            target.y = newY;
+            target.w = newMaxX - newX;
+            target.h = newMaxY - newY;
+            merged = true;
+            break;
+          }
+        }
+        if (!merged) {
+          mergedBoxes.push(box);
+        }
+      });
+
+      // 4. 繪製與打包
       drawCanvas();
       ctx.strokeStyle = '#a78bfa';
       ctx.lineWidth = 3;
       ctx.setLineDash([6, 3]);
 
-      boxes.forEach((box, index) => {
+      mergedBoxes.forEach((box, index) => {
         ctx.strokeRect(box.x, box.y, box.w, box.h);
 
         ctx.fillStyle = '#8b5cf6';
@@ -798,7 +824,6 @@
       scrollToPreview();
     }
 
-    /* 規則網格分割 */
     function autoDetectGrid() {
       const mode = document.getElementById('gridMode').value;
       let cols = 5, rows = 8;
