@@ -93,6 +93,17 @@
     .btn-upload { background: #3b82f6; color: white; }
     .btn-download { background: #06b6d4; color: white; font-size: 16px; padding: 12px; }
     .btn-reset { background: #ef4444; color: white; }
+    .btn-clear-preview {
+      background: #dc2626;
+      color: white;
+      padding: 6px 12px;
+      font-size: 13px;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .btn-clear-preview:hover { opacity: 0.9; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* 設定控制列 */
@@ -202,6 +213,21 @@
       border-radius: 3px;
       pointer-events: none;
     }
+
+    /* 單張操作按鈕 */
+    .sticker-item .edit-btn {
+      position: absolute;
+      bottom: 4px;
+      right: 4px;
+      background: #8b5cf6;
+      color: white;
+      border: none;
+      padding: 2px 5px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      z-index: 2;
+    }
     .sticker-item .del-btn {
       position: absolute;
       top: 4px;
@@ -224,6 +250,46 @@
       border: 2px dashed #06b6d4;
       background: rgba(6, 182, 212, 0.2);
       pointer-events: none;
+    }
+
+    /* 彈出視窗 (Modal) */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+    }
+    .modal-content {
+      background: #1e1e24;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 400px;
+      width: 90%;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      border: 1px solid #374151;
+    }
+    .modal-preview {
+      width: 180px;
+      height: 180px;
+      margin: 0 auto;
+      background-image: linear-gradient(45deg, #272730 25%, transparent 25%), 
+                        linear-gradient(-45deg, #272730 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #272730 75%), 
+                        linear-gradient(-45deg, transparent 75%, #272730 75%);
+      background-size: 12px 12px;
+      border: 1px solid #4b5563;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
     }
   </style>
 </head>
@@ -285,24 +351,53 @@
       </label>
 
       <button class="btn btn-download" onclick="downloadZip()">⬇ 下載 ZIP (180x180 PNG)</button>
-      <button class="btn btn-reset" onclick="resetAll()">↺ 全部重來</button>
+      <button class="btn btn-reset" onclick="resetAll()">↺ 全部重來 (含母圖)</button>
     </div>
 
     <div class="preview-section">
       <div class="preview-header">
         <h3>已裁切貼圖預覽 (固定 180x180 px，可拖動調整順序)</h3>
+        <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有貼圖 (保留母圖)</button>
       </div>
       <div class="sticker-grid" id="stickerGrid"></div>
     </div>
   </div>
 
+  <!-- 單張去背編輯 Modal -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal-content">
+      <h3 style="color:#a78bfa;">單張貼圖重新去背</h3>
+      <div class="modal-preview">
+        <canvas id="modalCanvas" width="180" height="180"></canvas>
+      </div>
+      
+      <div class="setting-row">
+        <span>去背顏色：</span>
+        <input type="color" id="modalBgColor" value="#ffffff" onchange="previewModalBgRemove()">
+      </div>
+
+      <div class="slider-container">
+        <span>容差：</span>
+        <input type="range" id="modalTolerance" min="1" max="100" value="15" oninput="document.getElementById('modalTolVal').innerText = this.value; previewModalBgRemove();">
+        <span id="modalTolVal" style="min-width:25px; text-align:right; font-weight:bold; color:#a78bfa;">15</span>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-auto" onclick="applyModalBgRemove()">確認套用</button>
+        <button class="btn btn-manual" onclick="closeModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const TARGET_SIZE = 180; // 強制指定輸出尺寸為 180x180
+    const TARGET_SIZE = 180;
+    // savedStickers 結構改為：{ rawCanvas: Canvas, finalCanvas: Canvas }
     let savedStickers = [];
     let currentImage = null;
     let isDrawing = false;
     let startX = 0, startY = 0, endX = 0, endY = 0;
     let draggedIndex = null;
+    let currentEditIndex = null;
 
     const mainCanvas = document.getElementById('mainCanvas');
     const ctx = mainCanvas.getContext('2d');
@@ -368,7 +463,6 @@
       ctx.drawImage(currentImage, 0, 0);
     }
 
-    // 將任何大小的 Canvas 統一規範化縮放成 180x180 PNG
     function create180Canvas(sourceCvs) {
       const finalCvs = document.createElement('canvas');
       finalCvs.width = TARGET_SIZE;
@@ -378,7 +472,6 @@
       fCtx.imageSmoothingEnabled = true;
       fCtx.imageSmoothingQuality = 'high';
 
-      // 保持比例計算
       const scale = Math.min(TARGET_SIZE / sourceCvs.width, TARGET_SIZE / sourceCvs.height);
       const drawW = sourceCvs.width * scale;
       const drawH = sourceCvs.height * scale;
@@ -429,20 +522,28 @@
           ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
 
           if (savedStickers.length < 40) {
+            // 複製未去背的原版 Canvas
             const rawCropCvs = document.createElement('canvas');
             rawCropCvs.width = cellW;
             rawCropCvs.height = cellH;
             const cCtx = rawCropCvs.getContext('2d');
-
             cCtx.drawImage(currentImage, c * cellW, r * cellH, cellW, cellH, 0, 0, cellW, cellH);
 
+            // 進行去背處理
+            const processCvs = document.createElement('canvas');
+            processCvs.width = cellW;
+            processCvs.height = cellH;
+            const pCtx = processCvs.getContext('2d');
+            pCtx.drawImage(rawCropCvs, 0, 0);
+
             if (document.getElementById('bgRemoveToggle').checked) {
-              removeBg(cCtx, cellW, cellH);
+              const hex = document.getElementById('bgColor').value;
+              const tol = parseInt(document.getElementById('tolerance').value);
+              removeBg(pCtx, cellW, cellH, hex, tol);
             }
 
-            // 強制轉為 180x180
-            const finalStickerCvs = create180Canvas(rawCropCvs);
-            addSticker(finalStickerCvs);
+            const finalStickerCvs = create180Canvas(processCvs);
+            addSticker(rawCropCvs, finalStickerCvs);
           }
         }
       }
@@ -507,16 +608,22 @@
       rawCropCvs.width = w;
       rawCropCvs.height = h;
       const cCtx = rawCropCvs.getContext('2d');
-
       cCtx.drawImage(currentImage, x, y, w, h, 0, 0, w, h);
 
+      const processCvs = document.createElement('canvas');
+      processCvs.width = w;
+      processCvs.height = h;
+      const pCtx = processCvs.getContext('2d');
+      pCtx.drawImage(rawCropCvs, 0, 0);
+
       if (document.getElementById('bgRemoveToggle').checked) {
-        removeBg(cCtx, w, h);
+        const hex = document.getElementById('bgColor').value;
+        const tol = parseInt(document.getElementById('tolerance').value);
+        removeBg(pCtx, w, h, hex, tol);
       }
 
-      // 強制轉為 180x180
-      const finalStickerCvs = create180Canvas(rawCropCvs);
-      addSticker(finalStickerCvs);
+      const finalStickerCvs = create180Canvas(processCvs);
+      addSticker(rawCropCvs, finalStickerCvs);
 
       if (selectionBox) selectionBox.remove();
       selectionBox = null;
@@ -524,11 +631,10 @@
       scrollToPreview();
     }
 
-    function removeBg(cCtx, w, h) {
+    function removeBg(cCtx, w, h, hex, toleranceVal) {
       const imgData = cCtx.getImageData(0, 0, w, h);
       const data = imgData.data;
-      const hex = document.getElementById('bgColor').value;
-      const tol = parseInt(document.getElementById('tolerance').value) * 2.55;
+      const tol = toleranceVal * 2.55;
 
       const targetR = parseInt(hex.slice(1, 3), 16);
       const targetG = parseInt(hex.slice(3, 5), 16);
@@ -545,9 +651,9 @@
       cCtx.putImageData(imgData, 0, 0);
     }
 
-    function addSticker(canvas) {
+    function addSticker(rawCvs, finalCvs) {
       if (savedStickers.length >= 40) return;
-      savedStickers.push(canvas);
+      savedStickers.push({ rawCanvas: rawCvs, finalCanvas: finalCvs });
       updatePreview();
     }
 
@@ -556,27 +662,44 @@
       updatePreview();
     }
 
+    function clearStickersOnly() {
+      if (savedStickers.length === 0) return;
+      if (confirm('確定要清空所有已產生的貼圖嗎？（母圖將會保留）')) {
+        savedStickers = [];
+        updatePreview();
+      }
+    }
+
     function updatePreview() {
       stickerGrid.innerHTML = '';
       savedCountEl.innerText = savedStickers.length;
 
-      savedStickers.forEach((cvs, idx) => {
-        const item = document.createElement('div');
-        item.className = 'sticker-item';
-        item.draggable = true;
-        item.dataset.index = idx;
+      savedStickers.forEach((item, idx) => {
+        const stickerDiv = document.createElement('div');
+        stickerDiv.className = 'sticker-item';
+        stickerDiv.draggable = true;
+        stickerDiv.dataset.index = idx;
 
-        item.addEventListener('dragstart', handleDragStart);
-        item.addEventListener('dragover', handleDragOver);
-        item.addEventListener('drop', handleDrop);
-        item.addEventListener('dragend', handleDragEnd);
+        stickerDiv.addEventListener('dragstart', handleDragStart);
+        stickerDiv.addEventListener('dragover', handleDragOver);
+        stickerDiv.addEventListener('drop', handleDrop);
+        stickerDiv.addEventListener('dragend', handleDragEnd);
 
         const img = document.createElement('img');
-        img.src = cvs.toDataURL('image/png');
+        img.src = item.finalCanvas.toDataURL('image/png');
 
         const tag = document.createElement('div');
         tag.className = 'idx-tag';
         tag.innerText = String(idx + 1).padStart(3, '0');
+
+        // 重新去背按鈕
+        const editBtn = document.createElement('button');
+        editBtn.className = 'edit-btn';
+        editBtn.innerText = '🪄 去背';
+        editBtn.onclick = (e) => {
+          e.stopPropagation();
+          openEditModal(idx);
+        };
 
         const delBtn = document.createElement('button');
         delBtn.className = 'del-btn';
@@ -586,11 +709,66 @@
           removeSticker(idx);
         };
 
-        item.appendChild(img);
-        item.appendChild(tag);
-        item.appendChild(delBtn);
-        stickerGrid.appendChild(item);
+        stickerDiv.appendChild(img);
+        stickerDiv.appendChild(tag);
+        stickerDiv.appendChild(editBtn);
+        stickerDiv.appendChild(delBtn);
+        stickerGrid.appendChild(stickerDiv);
       });
+    }
+
+    // Modal 單張去背邏輯
+    function openEditModal(idx) {
+      currentEditIndex = idx;
+      const modal = document.getElementById('editModal');
+      modal.style.display = 'flex';
+
+      // 帶入主設定當下的顏色與容差
+      document.getElementById('modalBgColor').value = document.getElementById('bgColor').value;
+      document.getElementById('modalTolerance').value = document.getElementById('tolerance').value;
+      document.getElementById('modalTolVal').innerText = document.getElementById('tolerance').value;
+
+      previewModalBgRemove();
+    }
+
+    function previewModalBgRemove() {
+      if (currentEditIndex === null) return;
+      const rawCvs = savedStickers[currentEditIndex].rawCanvas;
+      const hex = document.getElementById('modalBgColor').value;
+      const tol = parseInt(document.getElementById('modalTolerance').value);
+
+      const processCvs = document.createElement('canvas');
+      processCvs.width = rawCvs.width;
+      processCvs.height = rawCvs.height;
+      const pCtx = processCvs.getContext('2d');
+      pCtx.drawImage(rawCvs, 0, 0);
+
+      removeBg(pCtx, rawCvs.width, rawCvs.height, hex, tol);
+
+      const preview180 = create180Canvas(processCvs);
+      const modalCanvas = document.getElementById('modalCanvas');
+      const mCtx = modalCanvas.getContext('2d');
+      mCtx.clearRect(0, 0, 180, 180);
+      mCtx.drawImage(preview180, 0, 0);
+    }
+
+    function applyModalBgRemove() {
+      if (currentEditIndex === null) return;
+      const modalCanvas = document.getElementById('modalCanvas');
+      
+      const newFinalCvs = document.createElement('canvas');
+      newFinalCvs.width = TARGET_SIZE;
+      newFinalCvs.height = TARGET_SIZE;
+      newFinalCvs.getContext('2d').drawImage(modalCanvas, 0, 0);
+
+      savedStickers[currentEditIndex].finalCanvas = newFinalCvs;
+      updatePreview();
+      closeModal();
+    }
+
+    function closeModal() {
+      document.getElementById('editModal').style.display = 'none';
+      currentEditIndex = null;
     }
 
     function handleDragStart(e) {
@@ -623,17 +801,15 @@
       stickerGrid.scrollIntoView({ behavior: 'smooth' });
     }
 
-    // 打包輸出標準 PNG
     function downloadZip() {
       if (savedStickers.length === 0) return alert('預覽區內沒有圖片可以下載！');
 
       const zip = new JSZip();
       const folder = zip.folder("stickers");
 
-      savedStickers.forEach((cvs, idx) => {
+      savedStickers.forEach((item, idx) => {
         const fileName = `${String(idx + 1).padStart(3, '0')}.png`;
-        // 強制輸出為 image/png
-        const base64 = cvs.toDataURL('image/png').split(',')[1];
+        const base64 = item.finalCanvas.toDataURL('image/png').split(',')[1];
         folder.file(fileName, base64, { base64: true });
       });
 
