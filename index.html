@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CropAlpha 貼圖進階裁切工具</title>
+  <title>CropAlpha 貼圖/表情貼裁切工具</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22,6 +22,8 @@
       padding: 10px 20px;
       border-radius: 8px;
       margin-bottom: 15px;
+      flex-wrap: wrap;
+      gap: 10px;
     }
     .top-bar h1 { font-size: 18px; color: #a78bfa; }
     .badge { background: #374151; padding: 4px 10px; border-radius: 20px; font-size: 13px; }
@@ -266,7 +268,7 @@
       background: #1e1e24;
       padding: 20px;
       border-radius: 8px;
-      max-width: 400px;
+      max-width: 420px;
       width: 90%;
       display: flex;
       flex-direction: column;
@@ -274,8 +276,8 @@
       border: 1px solid #374151;
     }
     .modal-preview {
-      width: 180px;
-      height: 180px;
+      width: 200px;
+      height: 200px;
       margin: 0 auto;
       background-image: linear-gradient(45deg, #272730 25%, transparent 25%), 
                         linear-gradient(-45deg, #272730 25%, transparent 25%), 
@@ -287,6 +289,7 @@
       align-items: center;
       justify-content: center;
     }
+    .modal-preview canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
     .modal-actions {
       display: flex;
       gap: 10px;
@@ -296,14 +299,21 @@
 <body>
 
   <div class="top-bar">
-    <h1>田 CropAlpha 貼圖進階裁切工具</h1>
-    <div class="badge">規格：180x180 PNG | 已儲存：<span id="savedCount">0</span> / 40 張</div>
+    <h1>田 CropAlpha 貼圖/表情貼裁切工具</h1>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="font-size:13px; font-weight:bold; color:#a78bfa;">輸出類型：</span>
+      <select id="exportType" onchange="changeExportType()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold;">
+        <option value="emoji" selected>😊 表情貼 (180 × 180 px)</option>
+        <option value="sticker">🎨 標準貼圖 (370 × 320 px)</option>
+      </select>
+      <div class="badge">已儲存：<span id="savedCount">0</span> / 40 張</div>
+    </div>
   </div>
 
   <div class="main-container">
     <div class="editor-section">
       <div class="setting-row">
-        <span>偵測模式：</span>
+        <span>網格偵測模式：</span>
         <select id="gridMode" onchange="toggleGridMode()" style="background:#374151; color:#fff; border:none; padding:4px; border-radius:4px;">
           <option value="5x8" selected>5 x 8 (40張 - 標準)</option>
           <option value="4x4">4 x 4 (16張)</option>
@@ -350,13 +360,13 @@
         <input type="file" id="fileInput" accept="image/*" style="display: none;" onchange="handleFileSelect(event)">
       </label>
 
-      <button class="btn btn-download" onclick="downloadZip()">⬇ 下載 ZIP (180x180 PNG)</button>
+      <button class="btn btn-download" onclick="downloadZip()">⬇ 下載 ZIP (符合 LINE 規範)</button>
       <button class="btn btn-reset" onclick="resetAll()">↺ 全部重來 (含母圖)</button>
     </div>
 
     <div class="preview-section">
       <div class="preview-header">
-        <h3>已裁切貼圖預覽 (固定 180x180 px，可拖動調整順序)</h3>
+        <h3>已裁切貼圖預覽 (可拖動調整順序)</h3>
         <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有貼圖 (保留母圖)</button>
       </div>
       <div class="sticker-grid" id="stickerGrid"></div>
@@ -368,7 +378,7 @@
     <div class="modal-content">
       <h3 style="color:#a78bfa;">單張貼圖重新去背</h3>
       <div class="modal-preview">
-        <canvas id="modalCanvas" width="180" height="180"></canvas>
+        <canvas id="modalCanvas"></canvas>
       </div>
       
       <div class="setting-row">
@@ -390,8 +400,10 @@
   </div>
 
   <script>
-    const TARGET_SIZE = 180;
-    // savedStickers 結構改為：{ rawCanvas: Canvas, finalCanvas: Canvas }
+    // 預設與尺寸配置 (像素必須為偶數)
+    let targetWidth = 180;
+    let targetHeight = 180;
+
     let savedStickers = [];
     let currentImage = null;
     let isDrawing = false;
@@ -409,6 +421,23 @@
     const customColsInput = document.getElementById('customCols');
     const customRowsInput = document.getElementById('customRows');
     const customTotalTag = document.getElementById('customTotalTag');
+
+    function changeExportType() {
+      const type = document.getElementById('exportType').value;
+      if (type === 'emoji') {
+        targetWidth = 180;
+        targetHeight = 180;
+      } else if (type === 'sticker') {
+        targetWidth = 370;
+        targetHeight = 320;
+      }
+      
+      // 若已裁切貼圖，重新生成適應新尺寸的 finalCanvas
+      savedStickers.forEach(item => {
+        item.finalCanvas = createTargetCanvas(item.rawCanvas);
+      });
+      updatePreview();
+    }
 
     function updateCustomTotal() {
       const c = parseInt(customColsInput.value) || 1;
@@ -463,20 +492,21 @@
       ctx.drawImage(currentImage, 0, 0);
     }
 
-    function create180Canvas(sourceCvs) {
+    // 將裁切後的 Canvas 放大/縮小並置中放入標準規格（確保偶數寬高）
+    function createTargetCanvas(sourceCvs) {
       const finalCvs = document.createElement('canvas');
-      finalCvs.width = TARGET_SIZE;
-      finalCvs.height = TARGET_SIZE;
+      finalCvs.width = targetWidth;
+      finalCvs.height = targetHeight;
       const fCtx = finalCvs.getContext('2d');
 
       fCtx.imageSmoothingEnabled = true;
       fCtx.imageSmoothingQuality = 'high';
 
-      const scale = Math.min(TARGET_SIZE / sourceCvs.width, TARGET_SIZE / sourceCvs.height);
+      const scale = Math.min(targetWidth / sourceCvs.width, targetHeight / sourceCvs.height);
       const drawW = sourceCvs.width * scale;
       const drawH = sourceCvs.height * scale;
-      const offsetX = (TARGET_SIZE - drawW) / 2;
-      const offsetY = (TARGET_SIZE - drawH) / 2;
+      const offsetX = (targetWidth - drawW) / 2;
+      const offsetY = (targetHeight - drawH) / 2;
 
       fCtx.drawImage(sourceCvs, 0, 0, sourceCvs.width, sourceCvs.height, offsetX, offsetY, drawW, drawH);
       return finalCvs;
@@ -522,14 +552,12 @@
           ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
 
           if (savedStickers.length < 40) {
-            // 複製未去背的原版 Canvas
             const rawCropCvs = document.createElement('canvas');
             rawCropCvs.width = cellW;
             rawCropCvs.height = cellH;
             const cCtx = rawCropCvs.getContext('2d');
             cCtx.drawImage(currentImage, c * cellW, r * cellH, cellW, cellH, 0, 0, cellW, cellH);
 
-            // 進行去背處理
             const processCvs = document.createElement('canvas');
             processCvs.width = cellW;
             processCvs.height = cellH;
@@ -542,7 +570,7 @@
               removeBg(pCtx, cellW, cellH, hex, tol);
             }
 
-            const finalStickerCvs = create180Canvas(processCvs);
+            const finalStickerCvs = createTargetCanvas(processCvs);
             addSticker(rawCropCvs, finalStickerCvs);
           }
         }
@@ -622,7 +650,7 @@
         removeBg(pCtx, w, h, hex, tol);
       }
 
-      const finalStickerCvs = create180Canvas(processCvs);
+      const finalStickerCvs = createTargetCanvas(processCvs);
       addSticker(rawCropCvs, finalStickerCvs);
 
       if (selectionBox) selectionBox.remove();
@@ -692,7 +720,6 @@
         tag.className = 'idx-tag';
         tag.innerText = String(idx + 1).padStart(3, '0');
 
-        // 重新去背按鈕
         const editBtn = document.createElement('button');
         editBtn.className = 'edit-btn';
         editBtn.innerText = '🪄 去背';
@@ -717,13 +744,15 @@
       });
     }
 
-    // Modal 單張去背邏輯
     function openEditModal(idx) {
       currentEditIndex = idx;
       const modal = document.getElementById('editModal');
       modal.style.display = 'flex';
 
-      // 帶入主設定當下的顏色與容差
+      const modalCanvas = document.getElementById('modalCanvas');
+      modalCanvas.width = targetWidth;
+      modalCanvas.height = targetHeight;
+
       document.getElementById('modalBgColor').value = document.getElementById('bgColor').value;
       document.getElementById('modalTolerance').value = document.getElementById('tolerance').value;
       document.getElementById('modalTolVal').innerText = document.getElementById('tolerance').value;
@@ -745,11 +774,11 @@
 
       removeBg(pCtx, rawCvs.width, rawCvs.height, hex, tol);
 
-      const preview180 = create180Canvas(processCvs);
+      const previewTarget = createTargetCanvas(processCvs);
       const modalCanvas = document.getElementById('modalCanvas');
       const mCtx = modalCanvas.getContext('2d');
-      mCtx.clearRect(0, 0, 180, 180);
-      mCtx.drawImage(preview180, 0, 0);
+      mCtx.clearRect(0, 0, targetWidth, targetHeight);
+      mCtx.drawImage(previewTarget, 0, 0);
     }
 
     function applyModalBgRemove() {
@@ -757,8 +786,8 @@
       const modalCanvas = document.getElementById('modalCanvas');
       
       const newFinalCvs = document.createElement('canvas');
-      newFinalCvs.width = TARGET_SIZE;
-      newFinalCvs.height = TARGET_SIZE;
+      newFinalCvs.width = targetWidth;
+      newFinalCvs.height = targetHeight;
       newFinalCvs.getContext('2d').drawImage(modalCanvas, 0, 0);
 
       savedStickers[currentEditIndex].finalCanvas = newFinalCvs;
@@ -805,7 +834,9 @@
       if (savedStickers.length === 0) return alert('預覽區內沒有圖片可以下載！');
 
       const zip = new JSZip();
-      const folder = zip.folder("stickers");
+      const type = document.getElementById('exportType').value;
+      const folderName = type === 'emoji' ? 'LINE_Emoji' : 'LINE_Stickers';
+      const folder = zip.folder(folderName);
 
       savedStickers.forEach((item, idx) => {
         const fileName = `${String(idx + 1).padStart(3, '0')}.png`;
@@ -816,7 +847,7 @@
       zip.generateAsync({ type: "blob" }).then(content => {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(content);
-        a.download = "LINE_Stickers_180x180.zip";
+        a.download = `${folderName}_${targetWidth}x${targetHeight}.zip`;
         a.click();
       });
     }
