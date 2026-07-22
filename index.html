@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CropAlpha 可手動縮放網格裁切工具</title>
+  <title>CropAlpha 網格裁切與單圖重新裁切工具</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -145,7 +145,7 @@
     }
     .btn:hover { opacity: 0.9; }
     .btn-auto { background: #8b5cf6; color: white; font-size: 15px; }
-    .btn-manual { background: #4b5563; color: white; }
+    .btn-manual { background: #10b981; color: white; font-size: 15px; }
     .btn-upload { background: #3b82f6; color: white; }
     .btn-download { background: #06b6d4; color: white; font-size: 16px; padding: 12px; }
     .btn-reset { background: #ef4444; color: white; }
@@ -216,7 +216,7 @@
 
     .sticker-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
       gap: 12px;
       max-height: 400px;
       overflow-y: auto;
@@ -241,7 +241,7 @@
       justify-content: center;
       transition: transform 0.15s, border-color 0.15s;
     }
-    .sticker-item img { max-width: 85%; max-height: 85%; object-fit: contain; pointer-events: none; }
+    .sticker-item img { max-width: 80%; max-height: 80%; object-fit: contain; pointer-events: none; }
     
     .sticker-item .idx-tag {
       position: absolute;
@@ -256,19 +256,28 @@
       pointer-events: none;
     }
 
-    .sticker-item .edit-btn {
+    .sticker-actions {
       position: absolute;
       bottom: 4px;
+      left: 4px;
       right: 4px;
-      background: #8b5cf6;
-      color: white;
-      border: none;
-      padding: 2px 6px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 11px;
-      z-index: 2;
+      display: flex;
+      gap: 4px;
+      justify-content: center;
     }
+    .sticker-actions button {
+      flex: 1;
+      border: none;
+      padding: 3px 0;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: bold;
+      color: white;
+    }
+    .btn-recrop { background: #10b981; }
+    .btn-edit-single { background: #8b5cf6; }
+
     .sticker-item .del-btn {
       position: absolute;
       top: 4px;
@@ -286,7 +295,7 @@
       z-index: 2;
     }
 
-    /* Modal 修邊視窗 */
+    /* Modal 通用樣式 */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
@@ -300,7 +309,7 @@
       background: #1e1e24;
       padding: 20px;
       border-radius: 8px;
-      max-width: 480px;
+      max-width: 800px;
       width: 95%;
       max-height: 90vh;
       overflow-y: auto;
@@ -309,6 +318,24 @@
       gap: 12px;
       border: 1px solid #374151;
     }
+
+    /* 單獨重新裁切 Modal 畫布 */
+    .crop-modal-wrapper {
+      position: relative;
+      background: #000;
+      border: 1px solid #4b5563;
+      max-height: 500px;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #recropCanvasContainer {
+      position: relative;
+      display: inline-block;
+    }
+
+    /* 修邊 Modal 預覽 */
     .modal-preview {
       width: 220px;
       height: 220px;
@@ -351,7 +378,7 @@
 <body>
 
   <div class="top-bar">
-    <h1>田 CropAlpha 全手動自由縮放網格工具</h1>
+    <h1>田 CropAlpha 自由網格與單圖精確裁切工具</h1>
     <div style="display:flex; align-items:center; gap:10px;">
       <span style="font-size:13px; font-weight:bold; color:#a78bfa;">輸出類型：</span>
       <select id="exportType" onchange="changeExportType()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold;">
@@ -405,9 +432,12 @@
     </div>
 
     <div class="control-section">
-      <button class="btn btn-auto" onclick="generateGridOverlay()">✦ 重設初始網格</button>
+      <button class="btn btn-manual" onclick="processAllGridBoxes()">⚡ 依據目前網格，重新生成所有圖片</button>
+      <button class="btn btn-auto" onclick="generateGridOverlay()">↺ 重設初始網格</button>
+      
       <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
-        💡 <b>提示：</b>在上圖畫布中，你可以<b>拖曳框框中心移動位置</b>，或<b>拖曳四周角落控制點調整大小</b>。調整後會<b>即時同步替換</b>下方預覽貼圖！
+        💡 <b>順暢提示：</b>拖拉網格框不會卡頓！調整好框的位置與大小後，點擊上方綠色<b>「重新生成」</b>按鈕即可更新全部貼圖。<br>
+        若要調整單一張，直接按下方預覽圖片上的<b>「✂ 重新裁切」</b>最方便！
       </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
@@ -423,16 +453,48 @@
 
     <div class="preview-section">
       <div class="preview-header">
-        <h3>已裁切圖案預覽 (即時同步)</h3>
+        <h3>已裁切圖案預覽</h3>
         <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有圖案</button>
       </div>
       <div class="sticker-grid" id="stickerGrid"></div>
     </div>
   </div>
 
-  <!-- Modal 修邊視窗 -->
+  <!-- Modal 1: 單圖重新裁切視窗 -->
+  <div class="modal-overlay" id="recropModal">
+    <div class="modal-content" style="max-width: 900px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="color:#10b981;">✂ 單圖重新裁切 (No.<span id="recropTargetIdx"></span>)</h3>
+        <span style="font-size:12px; color:#9ca3af;">拖曳框框以重新框選這張圖案的位置與大小</span>
+      </div>
+
+      <div class="crop-modal-wrapper">
+        <div id="recropCanvasContainer">
+          <canvas id="recropBgCanvas"></canvas>
+          <div id="recropBox" class="grid-box" style="z-index: 10;">
+            <div class="box-label">Crop</div>
+            <div class="resize-handle handle-nw" data-handle="nw"></div>
+            <div class="resize-handle handle-ne" data-handle="ne"></div>
+            <div class="resize-handle handle-sw" data-handle="sw"></div>
+            <div class="resize-handle handle-se" data-handle="se"></div>
+            <div class="resize-handle handle-n" data-handle="n"></div>
+            <div class="resize-handle handle-s" data-handle="s"></div>
+            <div class="resize-handle handle-w" data-handle="w"></div>
+            <div class="resize-handle handle-e" data-handle="e"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-manual" onclick="applySingleRecrop()">確定套用並覆蓋</button>
+        <button class="btn btn-reset" onclick="closeRecropModal()" style="background:#4b5563;">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: 修邊與位移視窗 -->
   <div class="modal-overlay" id="editModal">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width:480px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <h3 style="color:#a78bfa;">🛠 單張圖案精細編輯</h3>
         <span style="font-size:12px; color:#9ca3af;">(橡皮擦塗抹修邊)</span>
@@ -481,7 +543,7 @@
 
       <div class="modal-actions">
         <button class="btn btn-auto" onclick="applyModalEdit()">確認套用</button>
-        <button class="btn btn-manual" onclick="closeModal()">取消</button>
+        <button class="btn" style="background:#4b5563;" onclick="closeModal()">取消</button>
       </div>
     </div>
   </div>
@@ -497,6 +559,9 @@
 
     let modalEraserCanvas = null;
     let isErasing = false;
+
+    // 單圖重新裁切 Box 數據
+    let singleCropBox = { x: 0, y: 0, w: 100, h: 100 };
 
     const mainCanvas = document.getElementById('mainCanvas');
     const ctx = mainCanvas.getContext('2d');
@@ -582,12 +647,11 @@
       ctx.drawImage(currentImage, 0, 0);
     }
 
-    /* ⚡ 產生網格與可調整八個方向的手柄 */
+    /* ⚡ 建立輕量化互動網格 (不即時計算圖片以保證流暢) */
     function generateGridOverlay() {
       if (!currentImage) return;
       gridOverlay.innerHTML = '';
       gridBoxesData = [];
-      savedStickers = [];
 
       const mode = document.getElementById('gridMode').value;
       let cols = 5, rows = 8;
@@ -613,13 +677,11 @@
           };
           gridBoxesData.push(boxData);
           createResizableBoxDOM(boxData);
-          processSingleBoxToSticker(boxData.id);
         }
       }
-      updatePreview();
+      processAllGridBoxes();
     }
 
-    /* 建立帶有拖拉與縮放 Handle 的網格框 */
     function createResizableBoxDOM(box) {
       const boxDiv = document.createElement('div');
       boxDiv.className = 'grid-box';
@@ -631,7 +693,6 @@
       label.innerText = String(box.id + 1).padStart(3, '0');
       boxDiv.appendChild(label);
 
-      // 建立 8 個縮放控制點
       const handles = ['nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e'];
       handles.forEach(h => {
         const handleDiv = document.createElement('div');
@@ -640,24 +701,17 @@
         boxDiv.appendChild(handleDiv);
       });
 
-      // 綁定拖曳與動態縮放事件
-      let isAction = false;
-      let actionType = null; // 'move' 或 'resize'
-      let activeHandle = null;
+      let isAction = false, actionType = null, activeHandle = null;
       let startX, startY, initX, initY, initW, initH;
 
       boxDiv.addEventListener('mousedown', (e) => {
         isAction = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        initX = box.x;
-        initY = box.y;
-        initW = box.w;
-        initH = box.h;
+        startX = e.clientX; startY = e.clientY;
+        initX = box.x; initY = box.y;
+        initW = box.w; initH = box.h;
 
         if (e.target.classList.contains('resize-handle')) {
-          actionType = 'resize';
-          activeHandle = e.target.dataset.handle;
+          actionType = 'resize'; activeHandle = e.target.dataset.handle;
         } else {
           actionType = 'move';
         }
@@ -678,22 +732,17 @@
           if (activeHandle.includes('s')) box.h = Math.max(minSize, initH + dy);
           if (activeHandle.includes('w')) {
             const newW = Math.max(minSize, initW - dx);
-            box.x = initX + (initW - newW);
-            box.w = newW;
+            box.x = initX + (initW - newW); box.w = newW;
           }
           if (activeHandle.includes('n')) {
             const newH = Math.max(minSize, initH - dy);
-            box.y = initY + (initH - newH);
-            box.h = newH;
+            box.y = initY + (initH - newH); box.h = newH;
           }
         }
-
         updateBoxStyle(boxDiv, box);
-        processSingleBoxToSticker(box.id); // 即時同步替換預覽圖片
       });
 
       window.addEventListener('mouseup', () => { isAction = false; });
-
       gridOverlay.appendChild(boxDiv);
     }
 
@@ -704,46 +753,45 @@
       boxDiv.style.height = `${box.h}px`;
     }
 
-    /* ⚡ 根據目前網格框位置與大小，提取圖片並進行純背景顏色去背 */
-    function processSingleBoxToSticker(boxId) {
-      if (!currentImage || !gridBoxesData[boxId]) return;
-
-      const box = gridBoxesData[boxId];
-      const hex = document.getElementById('bgColor').value;
-      const toleranceVal = parseInt(document.getElementById('tolerance').value);
-
-      // 直接依框的大小裁切
-      const rawCropCvs = document.createElement('canvas');
-      rawCropCvs.width = box.w;
-      rawCropCvs.height = box.h;
-      const rawCtx = rawCropCvs.getContext('2d');
-      rawCtx.drawImage(currentImage, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
-
-      // 去背處理
-      const processCvs = document.createElement('canvas');
-      processCvs.width = box.w;
-      processCvs.height = box.h;
-      const pCtx = processCvs.getContext('2d');
-      pCtx.drawImage(rawCropCvs, 0, 0);
-
-      removeBg(pCtx, box.w, box.h, hex, toleranceVal);
-
-      const finalStickerCvs = createTargetCanvas(processCvs);
-
-      // 直接替換陣列項目
-      savedStickers[boxId] = {
-        rawCanvas: rawCropCvs,
-        finalCanvas: finalStickerCvs
-      };
-
+    /* 一鍵更新全圖案 */
+    function processAllGridBoxes() {
+      if (!currentImage) return;
+      savedStickers = [];
+      gridBoxesData.forEach((box, idx) => {
+        savedStickers[idx] = cropAndProcessBox(box);
+      });
       updatePreview();
     }
 
+    function cropAndProcessBox(box) {
+      const hex = document.getElementById('bgColor').value;
+      const toleranceVal = parseInt(document.getElementById('tolerance').value);
+
+      const rawCropCvs = document.createElement('canvas');
+      rawCropCvs.width = Math.max(1, box.w);
+      rawCropCvs.height = Math.max(1, box.h);
+      const rawCtx = rawCropCvs.getContext('2d');
+      rawCtx.drawImage(currentImage, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+
+      const processCvs = document.createElement('canvas');
+      processCvs.width = rawCropCvs.width;
+      processCvs.height = rawCropCvs.height;
+      const pCtx = processCvs.getContext('2d');
+      pCtx.drawImage(rawCropCvs, 0, 0);
+
+      removeBg(pCtx, processCvs.width, processCvs.height, hex, toleranceVal);
+      const finalStickerCvs = createTargetCanvas(processCvs);
+
+      return {
+        boxData: { ...box },
+        rawCanvas: rawCropCvs,
+        finalCanvas: finalStickerCvs
+      };
+    }
+
     function reCalculateAllStickers() {
-      if (!currentImage || gridBoxesData.length === 0) return;
-      gridBoxesData.forEach(box => {
-        processSingleBoxToSticker(box.id);
-      });
+      if (!currentImage || savedStickers.length === 0) return;
+      processAllGridBoxes();
     }
 
     function removeBg(cCtx, w, h, hex, toleranceVal) {
@@ -823,10 +871,21 @@
         tag.className = 'idx-tag';
         tag.innerText = String(idx + 1).padStart(3, '0');
 
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'sticker-actions';
+
+        const recropBtn = document.createElement('button');
+        recropBtn.className = 'btn-recrop';
+        recropBtn.innerText = '✂ 重裁';
+        recropBtn.onclick = () => openRecropModal(idx);
+
         const editBtn = document.createElement('button');
-        editBtn.className = 'edit-btn';
+        editBtn.className = 'btn-edit-single';
         editBtn.innerText = '🪄 修邊';
         editBtn.onclick = () => openEditModal(idx);
+
+        actionsDiv.appendChild(recropBtn);
+        actionsDiv.appendChild(editBtn);
 
         const delBtn = document.createElement('button');
         delBtn.className = 'del-btn';
@@ -835,7 +894,7 @@
 
         stickerDiv.appendChild(img);
         stickerDiv.appendChild(tag);
-        stickerDiv.appendChild(editBtn);
+        stickerDiv.appendChild(actionsDiv);
         stickerDiv.appendChild(delBtn);
         stickerGrid.appendChild(stickerDiv);
       });
@@ -860,6 +919,112 @@
       }
     }
 
+    /* ✂ 🎯 單圖重新裁切功能核心 (Single Recrop Modal) */
+    const recropModal = document.getElementById('recropModal');
+    const recropBgCanvas = document.getElementById('recropBgCanvas');
+    const recropBox = document.getElementById('recropBox');
+
+    function openRecropModal(idx) {
+      if (!currentImage) return;
+      currentEditIndex = idx;
+      document.getElementById('recropTargetIdx').innerText = String(idx + 1).padStart(3, '0');
+
+      recropBgCanvas.width = currentImage.width;
+      recropBgCanvas.height = currentImage.height;
+      const rCtx = recropBgCanvas.getContext('2d');
+      rCtx.drawImage(currentImage, 0, 0);
+
+      // 如果有之前的 Box 位置就讀取，否則預設畫布中央
+      if (savedStickers[idx] && savedStickers[idx].boxData) {
+        singleCropBox = { ...savedStickers[idx].boxData };
+      } else {
+        singleCropBox = { x: currentImage.width / 4, y: currentImage.height / 4, w: currentImage.width / 2, h: currentImage.height / 2 };
+      }
+
+      updateRecropBoxStyle();
+      initRecropEvents();
+      recropModal.style.display = 'flex';
+    }
+
+    function updateRecropBoxStyle() {
+      recropBox.style.left = `${singleCropBox.x}px`;
+      recropBox.style.top = `${singleCropBox.y}px`;
+      recropBox.style.width = `${singleCropBox.w}px`;
+      recropBox.style.height = `${singleCropBox.h}px`;
+    }
+
+    let isRecropInit = false;
+    function initRecropEvents() {
+      if (isRecropInit) return;
+      isRecropInit = true;
+
+      let isAction = false, actionType = null, activeHandle = null;
+      let startX, startY, initX, initY, initW, initH;
+
+      recropBox.addEventListener('mousedown', (e) => {
+        isAction = true;
+        startX = e.clientX; startY = e.clientY;
+        initX = singleCropBox.x; initY = singleCropBox.y;
+        initW = singleCropBox.w; initH = singleCropBox.h;
+
+        if (e.target.classList.contains('resize-handle')) {
+          actionType = 'resize'; activeHandle = e.target.dataset.handle;
+        } else {
+          actionType = 'move';
+        }
+        e.stopPropagation();
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isAction || recropModal.style.display !== 'flex') return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        if (actionType === 'move') {
+          singleCropBox.x = Math.max(0, Math.min(currentImage.width - singleCropBox.w, initX + dx));
+          singleCropBox.y = Math.max(0, Math.min(currentImage.height - singleCropBox.h, initY + dy));
+        } else if (actionType === 'resize') {
+          const minSize = 10;
+          if (activeHandle.includes('e')) singleCropBox.w = Math.max(minSize, initW + dx);
+          if (activeHandle.includes('s')) singleCropBox.h = Math.max(minSize, initH + dy);
+          if (activeHandle.includes('w')) {
+            const newW = Math.max(minSize, initW - dx);
+            singleCropBox.x = initX + (initW - newW); singleCropBox.w = newW;
+          }
+          if (activeHandle.includes('n')) {
+            const newH = Math.max(minSize, initH - dy);
+            singleCropBox.y = initY + (initH - newH); singleCropBox.h = newH;
+          }
+        }
+        updateRecropBoxStyle();
+      });
+
+      window.addEventListener('mouseup', () => { isAction = false; });
+    }
+
+    function applySingleRecrop() {
+      if (currentEditIndex === null) return;
+      
+      // 依據新調整的框重新生成該張貼圖
+      savedStickers[currentEditIndex] = cropAndProcessBox(singleCropBox);
+
+      // 如果網格層有對應的 DOM 框，同步變更其樣式與數據
+      if (gridBoxesData[currentEditIndex]) {
+        gridBoxesData[currentEditIndex] = { ...singleCropBox, id: currentEditIndex };
+        const boxDom = document.getElementById(`grid-box-${currentEditIndex}`);
+        if (boxDom) updateBoxStyle(boxDom, singleCropBox);
+      }
+
+      updatePreview();
+      closeRecropModal();
+    }
+
+    function closeRecropModal() {
+      recropModal.style.display = 'none';
+      currentEditIndex = null;
+    }
+
+    /* 🧹 修邊 Modal 邏輯 */
     const modalCanvas = document.getElementById('modalCanvas');
     const mCtx = modalCanvas.getContext('2d');
 
