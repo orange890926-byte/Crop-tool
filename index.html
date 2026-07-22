@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CropAlpha 貼圖/表情貼裁切工具</title>
+  <title>CropAlpha 貼圖/表情貼進階編輯工具</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -142,7 +142,7 @@
       align-items: center;
       gap: 8px;
       width: 100%;
-      margin-top: 4px;
+      margin-top: 2px;
     }
 
     .slider-container input[type="range"] {
@@ -224,7 +224,7 @@
       background: #8b5cf6;
       color: white;
       border: none;
-      padding: 2px 5px;
+      padding: 2px 6px;
       border-radius: 4px;
       cursor: pointer;
       font-size: 11px;
@@ -258,7 +258,7 @@
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.8);
+      background: rgba(0,0,0,0.85);
       display: none;
       justify-content: center;
       align-items: center;
@@ -268,38 +268,67 @@
       background: #1e1e24;
       padding: 20px;
       border-radius: 8px;
-      max-width: 420px;
-      width: 90%;
+      max-width: 480px;
+      width: 95%;
+      max-height: 90vh;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 15px;
+      gap: 12px;
       border: 1px solid #374151;
     }
     .modal-preview {
-      width: 200px;
-      height: 200px;
+      width: 220px;
+      height: 220px;
       margin: 0 auto;
       background-image: linear-gradient(45deg, #272730 25%, transparent 25%), 
                         linear-gradient(-45deg, #272730 25%, transparent 25%), 
                         linear-gradient(45deg, transparent 75%, #272730 75%), 
                         linear-gradient(-45deg, transparent 75%, #272730 75%);
       background-size: 12px 12px;
-      border: 1px solid #4b5563;
+      border: 2px solid #8b5cf6;
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
     }
-    .modal-preview canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+    #modalCanvas { cursor: crosshair; touch-action: none; max-width: 100%; max-height: 100%; object-fit: contain; }
+
+    .tool-group {
+      background: #272730;
+      padding: 10px;
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .tool-title { color: #a78bfa; font-weight: bold; margin-bottom: 2px; }
+
+    .btn-small {
+      padding: 4px 8px;
+      font-size: 12px;
+      background: #374151;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-small:hover { background: #4b5563; }
+    .btn-small.active { background: #8b5cf6; }
+
     .modal-actions {
       display: flex;
       gap: 10px;
+      margin-top: 5px;
     }
   </style>
 </head>
 <body>
 
   <div class="top-bar">
-    <h1>田 CropAlpha 貼圖/表情貼裁切工具</h1>
+    <h1>田 CropAlpha 貼圖/表情貼微調工具</h1>
     <div style="display:flex; align-items:center; gap:10px;">
       <span style="font-size:13px; font-weight:bold; color:#a78bfa;">輸出類型：</span>
       <select id="exportType" onchange="changeExportType()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold;">
@@ -366,41 +395,85 @@
 
     <div class="preview-section">
       <div class="preview-header">
-        <h3>已裁切貼圖預覽 (可拖動調整順序)</h3>
+        <h3>已裁切貼圖預覽 (點擊 🪄 可進入編輯/修邊/位移)</h3>
         <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有貼圖 (保留母圖)</button>
       </div>
       <div class="sticker-grid" id="stickerGrid"></div>
     </div>
   </div>
 
-  <!-- 單張去背編輯 Modal -->
+  <!-- 單張進階編輯 Modal -->
   <div class="modal-overlay" id="editModal">
     <div class="modal-content">
-      <h3 style="color:#a78bfa;">單張貼圖重新去背</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="color:#a78bfa;">🛠 單張貼圖精細編輯</h3>
+        <span style="font-size:12px; color:#9ca3af;">(可用橡皮擦直接畫畫修邊)</span>
+      </div>
+
       <div class="modal-preview">
         <canvas id="modalCanvas"></canvas>
       </div>
-      
-      <div class="setting-row">
-        <span>去背顏色：</span>
-        <input type="color" id="modalBgColor" value="#ffffff" onchange="previewModalBgRemove()">
+
+      <!-- 橡皮擦工具 -->
+      <div class="tool-group">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tool-title">🧹 橡皮擦修邊 (在畫布上塗抹)</span>
+          <button class="btn-small" onclick="resetEraserLayer()">↺ 復原橡皮擦</button>
+        </div>
+        <div class="slider-container">
+          <span>筆刷大小：</span>
+          <input type="range" id="eraserSize" min="5" max="50" value="15" oninput="document.getElementById('eraserSizeVal').innerText = this.value + 'px'">
+          <span id="eraserSizeVal" style="min-width:35px; text-align:right; color:#a78bfa;">15px</span>
+        </div>
       </div>
 
-      <div class="slider-container">
-        <span>容差：</span>
-        <input type="range" id="modalTolerance" min="1" max="100" value="15" oninput="document.getElementById('modalTolVal').innerText = this.value; previewModalBgRemove();">
-        <span id="modalTolVal" style="min-width:25px; text-align:right; font-weight:bold; color:#a78bfa;">15</span>
+      <!-- 縮放與位置調整 -->
+      <div class="tool-group">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tool-title">🔍 尺寸與位置微調</span>
+          <button class="btn-small" onclick="resetTransform()">🎯 正中間 (Reset)</button>
+        </div>
+
+        <div class="slider-container">
+          <span>縮放大小：</span>
+          <input type="range" id="scaleSlider" min="30" max="150" value="100" oninput="updateModalRender()">
+          <span id="scaleVal" style="min-width:35px; text-align:right; color:#a78bfa;">100%</span>
+        </div>
+
+        <div class="slider-container">
+          <span>水平位置 (X)：</span>
+          <input type="range" id="offsetXSlider" min="-100" max="100" value="0" oninput="updateModalRender()">
+          <span id="offsetXVal" style="min-width:35px; text-align:right; color:#a78bfa;">0</span>
+        </div>
+
+        <div class="slider-container">
+          <span>垂直位置 (Y)：</span>
+          <input type="range" id="offsetYSlider" min="-100" max="100" value="0" oninput="updateModalRender()">
+          <span id="offsetYVal" style="min-width:35px; text-align:right; color:#a78bfa;">0</span>
+        </div>
+      </div>
+
+      <!-- 去背設定 -->
+      <div class="tool-group">
+        <span class="tool-title">🪄 去背參數</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <span>顏色：<input type="color" id="modalBgColor" value="#ffffff" onchange="updateModalRender()"></span>
+        </div>
+        <div class="slider-container">
+          <span>容差：</span>
+          <input type="range" id="modalTolerance" min="1" max="100" value="15" oninput="document.getElementById('modalTolVal').innerText = this.value; updateModalRender();">
+          <span id="modalTolVal" style="min-width:35px; text-align:right; color:#a78bfa;">15</span>
+        </div>
       </div>
 
       <div class="modal-actions">
-        <button class="btn btn-auto" onclick="applyModalBgRemove()">確認套用</button>
+        <button class="btn btn-auto" onclick="applyModalEdit()">確認套用</button>
         <button class="btn btn-manual" onclick="closeModal()">取消</button>
       </div>
     </div>
   </div>
 
   <script>
-    // 預設與尺寸配置 (像素必須為偶數)
     let targetWidth = 180;
     let targetHeight = 180;
 
@@ -410,6 +483,10 @@
     let startX = 0, startY = 0, endX = 0, endY = 0;
     let draggedIndex = null;
     let currentEditIndex = null;
+
+    // Modal 編輯狀態變數
+    let modalEraserCanvas = null; // 專門記錄橡皮擦遮罩
+    let isErasing = false;
 
     const mainCanvas = document.getElementById('mainCanvas');
     const ctx = mainCanvas.getContext('2d');
@@ -432,7 +509,6 @@
         targetHeight = 320;
       }
       
-      // 若已裁切貼圖，重新生成適應新尺寸的 finalCanvas
       savedStickers.forEach(item => {
         item.finalCanvas = createTargetCanvas(item.rawCanvas);
       });
@@ -492,8 +568,7 @@
       ctx.drawImage(currentImage, 0, 0);
     }
 
-    // 將裁切後的 Canvas 放大/縮小並置中放入標準規格（確保偶數寬高）
-    function createTargetCanvas(sourceCvs) {
+    function createTargetCanvas(sourceCvs, scalePct = 100, offsetX = 0, offsetY = 0) {
       const finalCvs = document.createElement('canvas');
       finalCvs.width = targetWidth;
       finalCvs.height = targetHeight;
@@ -502,13 +577,18 @@
       fCtx.imageSmoothingEnabled = true;
       fCtx.imageSmoothingQuality = 'high';
 
-      const scale = Math.min(targetWidth / sourceCvs.width, targetHeight / sourceCvs.height);
-      const drawW = sourceCvs.width * scale;
-      const drawH = sourceCvs.height * scale;
-      const offsetX = (targetWidth - drawW) / 2;
-      const offsetY = (targetHeight - drawH) / 2;
+      const baseScale = Math.min(targetWidth / sourceCvs.width, targetHeight / sourceCvs.height);
+      const userScale = scalePct / 100;
+      const drawW = sourceCvs.width * baseScale * userScale;
+      const drawH = sourceCvs.height * baseScale * userScale;
+      
+      const centerOffsetX = (targetWidth - drawW) / 2;
+      const centerOffsetY = (targetHeight - drawH) / 2;
 
-      fCtx.drawImage(sourceCvs, 0, 0, sourceCvs.width, sourceCvs.height, offsetX, offsetY, drawW, drawH);
+      fCtx.drawImage(
+        sourceCvs, 0, 0, sourceCvs.width, sourceCvs.height,
+        centerOffsetX + offsetX, centerOffsetY + offsetY, drawW, drawH
+      );
       return finalCvs;
     }
 
@@ -722,7 +802,7 @@
 
         const editBtn = document.createElement('button');
         editBtn.className = 'edit-btn';
-        editBtn.innerText = '🪄 去背';
+        editBtn.innerText = '🪄 編輯';
         editBtn.onclick = (e) => {
           e.stopPropagation();
           openEditModal(idx);
@@ -744,28 +824,49 @@
       });
     }
 
+    // Modal 進階編輯邏輯
+    const modalCanvas = document.getElementById('modalCanvas');
+    const mCtx = modalCanvas.getContext('2d');
+
     function openEditModal(idx) {
       currentEditIndex = idx;
       const modal = document.getElementById('editModal');
       modal.style.display = 'flex';
 
-      const modalCanvas = document.getElementById('modalCanvas');
       modalCanvas.width = targetWidth;
       modalCanvas.height = targetHeight;
 
+      // 重置橡皮擦圖層
+      modalEraserCanvas = document.createElement('canvas');
+      modalEraserCanvas.width = targetWidth;
+      modalEraserCanvas.height = targetHeight;
+
+      // 重置滑桿
+      document.getElementById('scaleSlider').value = 100;
+      document.getElementById('offsetXSlider').value = 0;
+      document.getElementById('offsetYSlider').value = 0;
       document.getElementById('modalBgColor').value = document.getElementById('bgColor').value;
       document.getElementById('modalTolerance').value = document.getElementById('tolerance').value;
       document.getElementById('modalTolVal').innerText = document.getElementById('tolerance').value;
 
-      previewModalBgRemove();
+      updateModalRender();
     }
 
-    function previewModalBgRemove() {
+    function updateModalRender() {
       if (currentEditIndex === null) return;
-      const rawCvs = savedStickers[currentEditIndex].rawCanvas;
+
+      const scale = parseInt(document.getElementById('scaleSlider').value);
+      const offsetX = parseInt(document.getElementById('offsetXSlider').value);
+      const offsetY = parseInt(document.getElementById('offsetYSlider').value);
       const hex = document.getElementById('modalBgColor').value;
       const tol = parseInt(document.getElementById('modalTolerance').value);
 
+      document.getElementById('scaleVal').innerText = scale + '%';
+      document.getElementById('offsetXVal').innerText = offsetX;
+      document.getElementById('offsetYVal').innerText = offsetY;
+
+      // 1. 去背 rawCanvas
+      const rawCvs = savedStickers[currentEditIndex].rawCanvas;
       const processCvs = document.createElement('canvas');
       processCvs.width = rawCvs.width;
       processCvs.height = rawCvs.height;
@@ -774,17 +875,71 @@
 
       removeBg(pCtx, rawCvs.width, rawCvs.height, hex, tol);
 
-      const previewTarget = createTargetCanvas(processCvs);
-      const modalCanvas = document.getElementById('modalCanvas');
-      const mCtx = modalCanvas.getContext('2d');
+      // 2. 放縮與平移至規格 Canvas
+      const targetCvs = createTargetCanvas(processCvs, scale, offsetX, offsetY);
+
+      // 3. 套用橡皮擦遮罩
       mCtx.clearRect(0, 0, targetWidth, targetHeight);
-      mCtx.drawImage(previewTarget, 0, 0);
+      mCtx.drawImage(targetCvs, 0, 0);
+
+      if (modalEraserCanvas) {
+        mCtx.save();
+        mCtx.globalCompositeOperation = 'destination-out';
+        mCtx.drawImage(modalEraserCanvas, 0, 0);
+        mCtx.restore();
+      }
     }
 
-    function applyModalBgRemove() {
+    // 橡皮擦繪製事件
+    modalCanvas.addEventListener('mousedown', startEraser);
+    modalCanvas.addEventListener('mousemove', drawEraser);
+    modalCanvas.addEventListener('mouseup', stopEraser);
+    modalCanvas.addEventListener('mouseleave', stopEraser);
+
+    function startEraser(e) {
+      isErasing = true;
+      drawEraser(e);
+    }
+
+    function drawEraser(e) {
+      if (!isErasing || !modalEraserCanvas) return;
+      const rect = modalCanvas.getBoundingClientRect();
+      const scaleX = targetWidth / rect.width;
+      const scaleY = targetHeight / rect.height;
+
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+      const size = parseInt(document.getElementById('eraserSize').value);
+
+      const eCtx = modalEraserCanvas.getContext('2d');
+      eCtx.fillStyle = '#000000';
+      eCtx.beginPath();
+      eCtx.arc(x, y, size / 2, 0, Math.PI * 2);
+      eCtx.fill();
+
+      updateModalRender();
+    }
+
+    function stopEraser() { isErasing = false; }
+
+    function resetEraserLayer() {
+      if (modalEraserCanvas) {
+        const eCtx = modalEraserCanvas.getContext('2d');
+        eCtx.clearRect(0, 0, targetWidth, targetHeight);
+        updateModalRender();
+      }
+    }
+
+    function resetTransform() {
+      document.getElementById('scaleSlider').value = 100;
+      document.getElementById('offsetXSlider').value = 0;
+      document.getElementById('offsetYSlider').value = 0;
+      updateModalRender();
+    }
+
+    function applyModalEdit() {
       if (currentEditIndex === null) return;
-      const modalCanvas = document.getElementById('modalCanvas');
-      
+
       const newFinalCvs = document.createElement('canvas');
       newFinalCvs.width = targetWidth;
       newFinalCvs.height = targetHeight;
