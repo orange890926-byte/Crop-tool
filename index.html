@@ -36,7 +36,6 @@
       flex-wrap: wrap;
     }
 
-    /* 左側工作區 */
     .editor-section {
       flex: 2;
       min-width: 350px;
@@ -48,7 +47,6 @@
       gap: 12px;
     }
 
-    /* 右側面板 */
     .control-section {
       flex: 1;
       min-width: 300px;
@@ -60,7 +58,6 @@
       gap: 12px;
     }
 
-    /* Canvas 拖曳框選區 */
     .canvas-wrapper {
       position: relative;
       background: #000;
@@ -75,7 +72,6 @@
     }
     #mainCanvas { cursor: crosshair; display: block; max-width: 100%; }
 
-    /* 按鈕樣式 */
     .btn {
       width: 100%;
       padding: 10px;
@@ -108,7 +104,6 @@
     .btn-clear-preview:hover { opacity: 0.9; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* 設定控制列 */
     .setting-row {
       display: flex;
       align-items: center;
@@ -151,7 +146,6 @@
       cursor: pointer;
     }
 
-    /* 下方預覽區 */
     .preview-section {
       width: 100%;
       background: #1e1e24;
@@ -166,7 +160,6 @@
       margin-bottom: 12px;
     }
 
-    /* 貼圖預覽網格 */
     .sticker-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -216,7 +209,6 @@
       pointer-events: none;
     }
 
-    /* 單張操作按鈕 */
     .sticker-item .edit-btn {
       position: absolute;
       bottom: 4px;
@@ -254,7 +246,7 @@
       pointer-events: none;
     }
 
-    /* 彈出視窗 (Modal) */
+    /* Modal 視窗樣式 */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
@@ -316,7 +308,6 @@
       cursor: pointer;
     }
     .btn-small:hover { background: #4b5563; }
-    .btn-small.active { background: #8b5cf6; }
 
     .modal-actions {
       display: flex;
@@ -328,11 +319,11 @@
 <body>
 
   <div class="top-bar">
-    <h1>田 CropAlpha 貼圖/表情貼微調工具</h1>
+    <h1>田 CropAlpha 智慧不規則邊界切割工具</h1>
     <div style="display:flex; align-items:center; gap:10px;">
       <span style="font-size:13px; font-weight:bold; color:#a78bfa;">輸出類型：</span>
       <select id="exportType" onchange="changeExportType()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold;">
-        <option value="emoji" selected>😊 表情貼 (180 × 180 px)</option>
+        <option value="emoji" selected>😊 表情貼 (180 × 180 + tab.png)</option>
         <option value="sticker">🎨 標準貼圖 (370 × 320 px)</option>
       </select>
       <div class="badge">已儲存：<span id="savedCount">0</span> / 40 張</div>
@@ -342,10 +333,11 @@
   <div class="main-container">
     <div class="editor-section">
       <div class="setting-row">
-        <span>網格偵測模式：</span>
+        <span>偵測模式：</span>
         <select id="gridMode" onchange="toggleGridMode()" style="background:#374151; color:#fff; border:none; padding:4px; border-radius:4px;">
-          <option value="5x8" selected>5 x 8 (40張 - 標準)</option>
-          <option value="4x4">4 x 4 (16張)</option>
+          <option value="smart" selected>⚡ 智慧不規則邊界偵測 (推薦)</option>
+          <option value="5x8">網格 5 x 8 (40張 - 標準)</option>
+          <option value="4x4">網格 4 x 4 (16張)</option>
           <option value="custom">⚙ 自訂網格</option>
         </select>
 
@@ -359,16 +351,16 @@
 
       <div class="setting-row">
         <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-          <label><input type="checkbox" id="bgRemoveToggle" checked> 開啟自動去背</label>
+          <label><input type="checkbox" id="bgRemoveToggle" checked> 自動去除背景色</label>
           <div>
-            去背顏色：<input type="color" id="bgColor" value="#ffffff">
+            背景顏色：<input type="color" id="bgColor" value="#ffffff">
           </div>
         </div>
         
         <div class="slider-container">
-          <span>去背強度 (容差)：</span>
-          <input type="range" id="tolerance" min="1" max="100" value="15" oninput="document.getElementById('tolValue').innerText = this.value">
-          <span id="tolValue" style="min-width:25px; text-align:right; font-weight:bold; color:#a78bfa;">15</span>
+          <span>偵測靈敏度/容差：</span>
+          <input type="range" id="tolerance" min="1" max="100" value="20" oninput="document.getElementById('tolValue').innerText = this.value">
+          <span id="tolValue" style="min-width:25px; text-align:right; font-weight:bold; color:#a78bfa;">20</span>
         </div>
       </div>
 
@@ -379,45 +371,44 @@
     </div>
 
     <div class="control-section">
-      <button class="btn btn-auto" id="autoDetectBtn" onclick="autoDetectGrid()">✦ 自動偵測貼圖</button>
-      <button class="btn btn-manual" id="manualCropBtn" onclick="cropManualSelection()" disabled>✂ 手動裁切並加入</button>
+      <button class="btn btn-auto" id="autoDetectBtn" onclick="runAutoDetect()">✦ 自動偵測並裁切</button>
+      <button class="btn btn-manual" id="manualCropBtn" onclick="cropManualSelection()" disabled>✂ 手動框選並加入</button>
       
       <hr style="border-color: #272730; margin: 5px 0;">
 
       <label class="btn btn-upload">
-        ↑ 上傳下一張 / 替換圖片
+        ↑ 上傳圖片 / 貼上圖片
         <input type="file" id="fileInput" accept="image/*" style="display: none;" onchange="handleFileSelect(event)">
       </label>
 
-      <button class="btn btn-download" onclick="downloadZip()">⬇ 下載 ZIP (符合 LINE 規範)</button>
-      <button class="btn btn-reset" onclick="resetAll()">↺ 全部重來 (含母圖)</button>
+      <button class="btn btn-download" onclick="downloadZip()">⬇ 下載 ZIP (含 tab.png)</button>
+      <button class="btn btn-reset" onclick="resetAll()">↺ 全部重來</button>
     </div>
 
     <div class="preview-section">
       <div class="preview-header">
-        <h3>已裁切貼圖預覽 (點擊 🪄 可進入編輯/修邊/位移)</h3>
-        <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有貼圖 (保留母圖)</button>
+        <h3>已裁切圖案預覽 (點擊 🪄 可進行獨立修邊/縮放)</h3>
+        <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有圖案</button>
       </div>
       <div class="sticker-grid" id="stickerGrid"></div>
     </div>
   </div>
 
-  <!-- 單張進階編輯 Modal -->
+  <!-- Modal 編輯視窗 -->
   <div class="modal-overlay" id="editModal">
     <div class="modal-content">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="color:#a78bfa;">🛠 單張貼圖精細編輯</h3>
-        <span style="font-size:12px; color:#9ca3af;">(可用橡皮擦直接畫畫修邊)</span>
+        <h3 style="color:#a78bfa;">🛠 單張圖案精細編輯</h3>
+        <span style="font-size:12px; color:#9ca3af;">(橡皮擦塗抹修邊)</span>
       </div>
 
       <div class="modal-preview">
         <canvas id="modalCanvas"></canvas>
       </div>
 
-      <!-- 橡皮擦工具 -->
       <div class="tool-group">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span class="tool-title">🧹 橡皮擦修邊 (在畫布上塗抹)</span>
+          <span class="tool-title">🧹 橡皮擦修邊</span>
           <button class="btn-small" onclick="resetEraserLayer()">↺ 復原橡皮擦</button>
         </div>
         <div class="slider-container">
@@ -427,7 +418,6 @@
         </div>
       </div>
 
-      <!-- 縮放與位置調整 -->
       <div class="tool-group">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <span class="tool-title">🔍 尺寸與位置微調</span>
@@ -453,7 +443,6 @@
         </div>
       </div>
 
-      <!-- 去背設定 -->
       <div class="tool-group">
         <span class="tool-title">🪄 去背參數</span>
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
@@ -461,8 +450,8 @@
         </div>
         <div class="slider-container">
           <span>容差：</span>
-          <input type="range" id="modalTolerance" min="1" max="100" value="15" oninput="document.getElementById('modalTolVal').innerText = this.value; updateModalRender();">
-          <span id="modalTolVal" style="min-width:35px; text-align:right; color:#a78bfa;">15</span>
+          <input type="range" id="modalTolerance" min="1" max="100" value="20" oninput="document.getElementById('modalTolVal').innerText = this.value; updateModalRender();">
+          <span id="modalTolVal" style="min-width:35px; text-align:right; color:#a78bfa;">20</span>
         </div>
       </div>
 
@@ -484,8 +473,7 @@
     let draggedIndex = null;
     let currentEditIndex = null;
 
-    // Modal 編輯狀態變數
-    let modalEraserCanvas = null; // 專門記錄橡皮擦遮罩
+    let modalEraserCanvas = null;
     let isErasing = false;
 
     const mainCanvas = document.getElementById('mainCanvas');
@@ -555,10 +543,58 @@
           currentImage = img;
           placeholderText.style.display = 'none';
           drawCanvas();
+          detectAutoBgColor(); // 載入時自動分析去背色
         };
         img.src = event.target.result;
       };
       reader.readAsDataURL(file);
+    }
+
+    /* 🎨 自動分析圖片多個邊界，精準偵測背景顏色 */
+    function detectAutoBgColor() {
+      if (!currentImage) return '#ffffff';
+
+      const tempCvs = document.createElement('canvas');
+      const w = currentImage.width;
+      const h = currentImage.height;
+      tempCvs.width = w;
+      tempCvs.height = h;
+      const tCtx = tempCvs.getContext('2d');
+      tCtx.drawImage(currentImage, 0, 0);
+
+      // 採樣邊界 8 個點 (四個角落 + 四條邊的中點)
+      const samplePoints = [
+        {x: Math.floor(w * 0.02), y: Math.floor(h * 0.02)},
+        {x: Math.floor(w * 0.98), y: Math.floor(h * 0.02)},
+        {x: Math.floor(w * 0.02), y: Math.floor(h * 0.98)},
+        {x: Math.floor(w * 0.98), y: Math.floor(h * 0.98)},
+        {x: Math.floor(w * 0.5),  y: Math.floor(h * 0.02)},
+        {x: Math.floor(w * 0.5),  y: Math.floor(h * 0.98)},
+        {x: Math.floor(w * 0.02), y: Math.floor(h * 0.5)},
+        {x: Math.floor(w * 0.98), y: Math.floor(h * 0.5)}
+      ];
+
+      let rSum = 0, gSum = 0, bSum = 0, validSamples = 0;
+
+      samplePoints.forEach(p => {
+        const pixel = tCtx.getImageData(p.x, p.y, 1, 1).data;
+        if (pixel[3] > 128) { // 只計算非透明區域
+          rSum += pixel[0];
+          gSum += pixel[1];
+          bSum += pixel[2];
+          validSamples++;
+        }
+      });
+
+      if (validSamples === 0) return '#ffffff';
+
+      const avgR = Math.round(rSum / validSamples);
+      const avgG = Math.round(gSum / validSamples);
+      const avgB = Math.round(bSum / validSamples);
+
+      const hex = "#" + ((1 << 24) + (avgR << 16) + (avgG << 8) + avgB).toString(16).slice(1);
+      document.getElementById('bgColor').value = hex;
+      return hex;
     }
 
     function drawCanvas() {
@@ -592,9 +628,178 @@
       return finalCvs;
     }
 
-    function autoDetectGrid() {
+    function createTabCanvas(sourceFinalCvs) {
+      const tabWidth = 96;
+      const tabHeight = 74;
+
+      const tabCvs = document.createElement('canvas');
+      tabCvs.width = tabWidth;
+      tabCvs.height = tabHeight;
+      const tCtx = tabCvs.getContext('2d');
+
+      tCtx.imageSmoothingEnabled = true;
+      tCtx.imageSmoothingQuality = 'high';
+
+      const scale = Math.min(tabWidth / sourceFinalCvs.width, tabHeight / sourceFinalCvs.height);
+      const drawW = sourceFinalCvs.width * scale;
+      const drawH = sourceFinalCvs.height * scale;
+      const offsetX = (tabWidth - drawW) / 2;
+      const offsetY = (tabHeight - drawH) / 2;
+
+      tCtx.drawImage(sourceFinalCvs, 0, 0, sourceFinalCvs.width, sourceFinalCvs.height, offsetX, offsetY, drawW, drawH);
+      return tabCvs;
+    }
+
+    function runAutoDetect() {
       if (!currentImage) return alert('請先上傳圖片！');
 
+      // 觸發邊界自動辨識背景色
+      detectAutoBgColor();
+
+      const mode = document.getElementById('gridMode').value;
+      if (mode === 'smart') {
+        detectSmartObjects();
+      } else {
+        autoDetectGrid();
+      }
+    }
+
+    /* ⚡ 智慧不規則物件邊界偵測演算法 */
+    function detectSmartObjects() {
+      const width = currentImage.width;
+      const height = currentImage.height;
+
+      const tempCvs = document.createElement('canvas');
+      tempCvs.width = width;
+      tempCvs.height = height;
+      const tCtx = tempCvs.getContext('2d');
+      tCtx.drawImage(currentImage, 0, 0);
+
+      const imgData = tCtx.getImageData(0, 0, width, height);
+      const data = imgData.data;
+
+      const hex = document.getElementById('bgColor').value;
+      const toleranceVal = parseInt(document.getElementById('tolerance').value);
+      const tol = toleranceVal * 2.55;
+
+      const bgR = parseInt(hex.slice(1, 3), 16);
+      const bgG = parseInt(hex.slice(3, 5), 16);
+      const bgB = parseInt(hex.slice(5, 7), 16);
+
+      const visited = new Uint8Array(width * height);
+      for (let i = 0; i < data.length; i += 4) {
+        const dist = Math.sqrt(
+          Math.pow(data[i] - bgR, 2) +
+          Math.pow(data[i+1] - bgG, 2) +
+          Math.pow(data[i+2] - bgB, 2)
+        );
+        const pixelIdx = i / 4;
+        visited[pixelIdx] = (dist > tol) ? 1 : 0;
+      }
+
+      const boxes = [];
+      const visitedBFS = new Uint8Array(width * height);
+
+      for (let y = 0; y < height; y += 4) {
+        for (let x = 0; x < width; x += 4) {
+          const idx = y * width + x;
+          if (visited[idx] === 1 && visitedBFS[idx] === 0) {
+            
+            let minX = x, maxX = x, minY = y, maxY = y;
+            const queue = [x, y];
+            visitedBFS[idx] = 1;
+
+            let head = 0;
+            while(head < queue.length) {
+              const currX = queue[head++];
+              const currY = queue[head++];
+
+              if (currX < minX) minX = currX;
+              if (currX > maxX) maxX = currX;
+              if (currY < minY) minY = currY;
+              if (currY > maxY) maxY = currY;
+
+              const neighbors = [
+                [currX + 3, currY], [currX - 3, currY],
+                [currX, currY + 3], [currX, currY - 3]
+              ];
+
+              for (let n = 0; n < neighbors.length; n++) {
+                const nx = neighbors[n][0];
+                const ny = neighbors[n][1];
+
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                  const nIdx = ny * width + nx;
+                  if (visited[nIdx] === 1 && visitedBFS[nIdx] === 0) {
+                    visitedBFS[nIdx] = 1;
+                    queue.push(nx, ny);
+                  }
+                }
+              }
+            }
+
+            const boxW = maxX - minX;
+            const boxH = maxY - minY;
+
+            if (boxW > 15 && boxH > 15) {
+              const pMinX = Math.max(0, minX - 5);
+              const pMinY = Math.max(0, minY - 5);
+              const pMaxX = Math.min(width, maxX + 5);
+              const pMaxY = Math.min(height, maxY + 5);
+
+              boxes.push({
+                x: pMinX,
+                y: pMinY,
+                w: pMaxX - pMinX,
+                h: pMaxY - pMinY
+              });
+            }
+          }
+        }
+      }
+
+      drawCanvas();
+      ctx.strokeStyle = '#a78bfa';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 3]);
+
+      boxes.forEach((box, index) => {
+        ctx.strokeRect(box.x, box.y, box.w, box.h);
+
+        ctx.fillStyle = '#8b5cf6';
+        ctx.fillRect(box.x, box.y, 24, 20);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText(index + 1, box.x + 5, box.y + 14);
+
+        if (savedStickers.length < 40) {
+          const rawCropCvs = document.createElement('canvas');
+          rawCropCvs.width = box.w;
+          rawCropCvs.height = box.h;
+          const cCtx = rawCropCvs.getContext('2d');
+          cCtx.drawImage(currentImage, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+
+          const processCvs = document.createElement('canvas');
+          processCvs.width = box.w;
+          processCvs.height = box.h;
+          const pCtx = processCvs.getContext('2d');
+          pCtx.drawImage(rawCropCvs, 0, 0);
+
+          if (document.getElementById('bgRemoveToggle').checked) {
+            removeBg(pCtx, box.w, box.h, hex, toleranceVal);
+          }
+
+          const finalStickerCvs = createTargetCanvas(processCvs);
+          addSticker(rawCropCvs, finalStickerCvs);
+        }
+      });
+
+      ctx.setLineDash([]);
+      scrollToPreview();
+    }
+
+    /* 規則網格分割 */
+    function autoDetectGrid() {
       const mode = document.getElementById('gridMode').value;
       let cols = 5, rows = 8;
 
@@ -824,7 +1029,6 @@
       });
     }
 
-    // Modal 進階編輯邏輯
     const modalCanvas = document.getElementById('modalCanvas');
     const mCtx = modalCanvas.getContext('2d');
 
@@ -836,12 +1040,10 @@
       modalCanvas.width = targetWidth;
       modalCanvas.height = targetHeight;
 
-      // 重置橡皮擦圖層
       modalEraserCanvas = document.createElement('canvas');
       modalEraserCanvas.width = targetWidth;
       modalEraserCanvas.height = targetHeight;
 
-      // 重置滑桿
       document.getElementById('scaleSlider').value = 100;
       document.getElementById('offsetXSlider').value = 0;
       document.getElementById('offsetYSlider').value = 0;
@@ -865,7 +1067,6 @@
       document.getElementById('offsetXVal').innerText = offsetX;
       document.getElementById('offsetYVal').innerText = offsetY;
 
-      // 1. 去背 rawCanvas
       const rawCvs = savedStickers[currentEditIndex].rawCanvas;
       const processCvs = document.createElement('canvas');
       processCvs.width = rawCvs.width;
@@ -875,10 +1076,8 @@
 
       removeBg(pCtx, rawCvs.width, rawCvs.height, hex, tol);
 
-      // 2. 放縮與平移至規格 Canvas
       const targetCvs = createTargetCanvas(processCvs, scale, offsetX, offsetY);
 
-      // 3. 套用橡皮擦遮罩
       mCtx.clearRect(0, 0, targetWidth, targetHeight);
       mCtx.drawImage(targetCvs, 0, 0);
 
@@ -890,7 +1089,6 @@
       }
     }
 
-    // 橡皮擦繪製事件
     modalCanvas.addEventListener('mousedown', startEraser);
     modalCanvas.addEventListener('mousemove', drawEraser);
     modalCanvas.addEventListener('mouseup', stopEraser);
@@ -998,6 +1196,12 @@
         const base64 = item.finalCanvas.toDataURL('image/png').split(',')[1];
         folder.file(fileName, base64, { base64: true });
       });
+
+      if (type === 'emoji' && savedStickers.length > 0) {
+        const tabCvs = createTabCanvas(savedStickers[0].finalCanvas);
+        const tabBase64 = tabCvs.toDataURL('image/png').split(',')[1];
+        folder.file("tab.png", tabBase64, { base64: true });
+      }
 
       zip.generateAsync({ type: "blob" }).then(content => {
         const a = document.createElement('a');
