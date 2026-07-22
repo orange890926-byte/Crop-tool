@@ -58,7 +58,7 @@
       gap: 12px;
     }
 
-    /* 主畫布與互動層 */
+    /* 主畫布與互動層 - 以母片原尺寸精確疊加 */
     .canvas-wrapper {
       position: relative;
       background: #000;
@@ -75,13 +75,10 @@
     #canvasContainer {
       position: relative;
       display: inline-block;
-      max-width: 100%;
     }
     #mainCanvas {
       cursor: crosshair;
       display: block;
-      max-width: 100%;
-      height: auto;
     }
     #gridOverlay {
       position: absolute;
@@ -118,7 +115,7 @@
       z-index: 2;
     }
 
-    /* 八方位拖拉控制點 (Handles) */
+    /* 控制點 Handles */
     .resize-handle {
       position: absolute;
       width: 10px;
@@ -459,14 +456,14 @@
     </div>
 
     <div class="control-section">
-      <button class="btn btn-manual" onclick="processAllGridBoxes()">⚡ 依據目前網格，重新生成所有圖片</button>
+      <button class="btn btn-manual" onclick="processAllGridBoxes()">⚡ 依據目前母片網格，重新切圖</button>
       <button class="btn btn-auto" onclick="generateGridOverlay()">↺ 重設初始網格</button>
       
       <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
-        💡 <b>提示：</b><br>
-        1. 母片網格框現在會<b>實時同步單圖重裁後的座標</b>！<br>
-        2. 下方預覽區可隨意拖拉順序，母片編號也會跟著連動。<br>
-        3. 單圖重裁視窗會自動<b>置中聚焦</b>到該號圖案。
+        💡 <b>精確對齊原則：</b><br>
+        1. 母片上的框框為唯一精確基準。<br>
+        2. 按「✂ 重裁」會以<b>母片原尺寸 1:1 精確載入</b>與微調，確保裁切不失真。<br>
+        3. 母片框框手動移動或縮放後，按「⚡ 重新切圖」即可一鍵更新！
       </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
@@ -494,7 +491,7 @@
     <div class="modal-content">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <h3 style="color:#10b981;">✂ 單圖重新裁切 (No.<span id="recropTargetIdx"></span>)</h3>
-        <span style="font-size:12px; color:#9ca3af;">拖曳框框以重新框選這張圖案的位置與大小</span>
+        <span style="font-size:12px; color:#9ca3af;">(以母片原尺寸 100% 進行精確裁切)</span>
       </div>
 
       <div class="crop-modal-wrapper" id="cropModalWrapper">
@@ -515,7 +512,7 @@
       </div>
 
       <div class="modal-actions">
-        <button class="btn btn-manual" onclick="applySingleRecrop()">確定套用並覆蓋</button>
+        <button class="btn btn-manual" onclick="applySingleRecrop()">確定套用並更新母片</button>
         <button class="btn btn-reset" onclick="closeRecropModal()" style="background:#4b5563;">取消</button>
       </div>
     </div>
@@ -740,11 +737,10 @@
       processAllGridBoxes();
     }
 
-    /* 🔄 重新繪製母片上所有的 DOM 框框，確保 100% 同步編號與位置 */
     function renderMainGridOverlay() {
       gridOverlay.innerHTML = '';
       gridBoxesData.forEach((box, idx) => {
-        box.id = idx; // 強制重置序號
+        box.id = idx;
         createResizableBoxDOM(box);
       });
     }
@@ -1037,7 +1033,7 @@
           gridBoxesData.splice(targetIndex, 0, movedBox);
         }
 
-        renderMainGridOverlay(); // 🔥 排序改變，母片框框與編號同步重新刷新！
+        renderMainGridOverlay();
         updatePreview();
       }
       return false;
@@ -1056,7 +1052,7 @@
       if (gridBoxesData[idx]) {
         gridBoxesData.splice(idx, 1);
       }
-      renderMainGridOverlay(); // 🔥 刪除圖片，母片網格同步刷新
+      renderMainGridOverlay();
       updatePreview();
     }
 
@@ -1069,7 +1065,7 @@
       }
     }
 
-    /* ✂ 單圖重新裁切 Modal 功能組 */
+    /* ✂ 單圖重新裁切 Modal 功能組（母片原尺寸精準對齊） */
     function openRecropModal(idx) {
       if (!currentImage) return;
       currentEditIndex = idx;
@@ -1081,7 +1077,8 @@
       const bgCtx = bgCanvas.getContext('2d');
       bgCtx.drawImage(currentImage, 0, 0);
 
-      const targetBox = savedStickers[idx]?.boxData || { x: 10, y: 10, w: 100, h: 100 };
+      // 🎯 以母片畫布上精確上記錄的座標為準
+      const targetBox = gridBoxesData[idx] || { x: 10, y: 10, w: 100, h: 100 };
       singleCropBox = { ...targetBox };
 
       const recropBox = document.getElementById('recropBox');
@@ -1091,7 +1088,7 @@
       const modalWrapper = document.getElementById('cropModalWrapper');
       document.getElementById('recropModal').style.display = 'flex';
 
-      // 🎯 自動聚焦聚焦置中 (考慮內部 Wrapper 25px safe padding)
+      // 自動滾動聚焦
       setTimeout(() => {
         const centerX = singleCropBox.x + (singleCropBox.w / 2) + 25;
         const centerY = singleCropBox.y + (singleCropBox.h / 2) + 25;
@@ -1150,21 +1147,17 @@
       window.onmouseup = onMouseUp;
     }
 
-    /* 🔥 關鍵更新：確定重裁時，100% 同步母片上的對應虛線框 */
     function applySingleRecrop() {
       if (currentEditIndex === null) return;
       const tol = savedStickers[currentEditIndex]?.tolerance || parseInt(document.getElementById('tolerance').value);
       
-      // 1. 更新資料層
+      // 更新資料層與母片 DOM
       savedStickers[currentEditIndex] = cropAndProcessBox(singleCropBox, tol);
       gridBoxesData[currentEditIndex] = { ...singleCropBox, id: currentEditIndex };
       
-      // 2. 即時更新母片（主畫布）的虛線框座標！
       const mainBoxElem = document.getElementById(`grid-box-${currentEditIndex}`);
       if (mainBoxElem) {
         updateBoxStyle(mainBoxElem, singleCropBox);
-      } else {
-        renderMainGridOverlay(); // 防護性繪製
       }
       
       updatePreview();
@@ -1309,7 +1302,7 @@
       currentEditIndex = null;
     }
 
-    /* ⬇ 下載 ZIP 檔案包 */
+    /* ⬇ 下載 ZIP 包 */
     async function downloadZip() {
       const activeStickers = savedStickers.filter(Boolean);
       if (activeStickers.length === 0) {
@@ -1341,7 +1334,6 @@
       link.click();
     }
 
-    /* ↺ 重設全部 */
     function resetAll() {
       if (confirm('確定要清除所有圖片與設定重來嗎？')) {
         currentImage = null;
