@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>圖片線上裁切工具</title>
+  <!-- 導入 Cropper.js 樣式 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f5f7fa;
+      color: #333;
+      padding: 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    h1 { margin-bottom: 20px; font-size: 24px; text-align: center; color: #2c3e50; }
+    
+    /* 上傳區塊 */
+    .upload-box {
+      border: 2px dashed #cbd5e1;
+      padding: 30px;
+      text-align: center;
+      border-radius: 8px;
+      cursor: pointer;
+      background-color: #f8fafc;
+      transition: border-color 0.2s;
+    }
+    .upload-box:hover { border-color: #3b82f6; }
+    input[type="file"] { display: none; }
+
+    /* 工具控制區 */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 20px 0;
+      justify-content: center;
+      align-items: center;
+    }
+    .btn {
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background-color: #fff;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn:hover { background-color: #f3f4f6; border-color: #9ca3af; }
+    .btn.active { background-color: #2563eb; color: #fff; border-color: #2563eb; }
+    .btn-success { background-color: #10b981; color: #fff; border-color: #10b981; }
+    .btn-success:hover { background-color: #059669; }
+
+    /* 圖片裁切預覽區 */
+    .img-container {
+      max-height: 500px;
+      margin-bottom: 20px;
+      display: none;
+      justify-content: center;
+      background: #000;
+    }
+    .img-container img { max-width: 100%; display: block; }
+    
+    /* 裁切後的預覽與下載區 */
+    .result-container {
+      margin-top: 20px;
+      text-align: center;
+      display: none;
+    }
+    .result-container img {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>線上圖片裁切工具</h1>
+
+  <!-- 上傳入口 -->
+  <div class="upload-box" onclick="document.getElementById('imageInput').click()">
+    <p>點擊上傳圖片 或 將圖片拖曳至此處</p>
+    <input type="file" id="imageInput" accept="image/*">
+  </div>
+
+  <!-- 比例選擇按鈕 -->
+  <div class="controls" id="controlPanel" style="display: none;">
+    <span>設定比例：</span>
+    <button class="btn active" onclick="setRatio(4/4, this)">4 : 4 (1:1)</button>
+    <button class="btn" onclick="setRatio(5/8, this)">5 : 8</button>
+    <button class="btn" onclick="setRatio(NaN, this)">自由比例</button>
+    <button class="btn btn-success" onclick="cropImage()">裁切圖片</button>
+  </div>
+
+  <!-- 裁切編輯器 -->
+  <div class="img-container" id="imgBox">
+    <img id="image" src="" alt="待裁切圖片">
+  </div>
+
+  <!-- 輸出結果 -->
+  <div class="result-container" id="resultBox">
+    <h3>裁切結果：</h3>
+    <div id="croppedResult"></div>
+    <br>
+    <a id="downloadBtn" class="btn btn-success" download="cropped-image.png">下載裁切圖片</a>
+  </div>
+</div>
+
+<!-- 導入 Cropper.js Core -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+<script>
+  let cropper = null;
+  const imageInput = document.getElementById('imageInput');
+  const image = document.getElementById('image');
+  const imgBox = document.getElementById('imgBox');
+  const controlPanel = document.getElementById('controlPanel');
+  const resultBox = document.getElementById('resultBox');
+  const croppedResult = document.getElementById('croppedResult');
+  const downloadBtn = document.getElementById('downloadBtn');
+
+  // 載入圖片事件
+  imageInput.addEventListener('change', function (e) {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      const reader = new FileReader();
+
+      reader.onload = function (e) {
+        image.src = e.target.result;
+        imgBox.style.display = 'flex';
+        controlPanel.style.display = 'flex';
+        resultBox.style.display = 'none';
+
+        // 初始化或重新載入 Cropper
+        if (cropper) {
+          cropper.destroy();
+        }
+        
+        cropper = new Cropper(image, {
+          aspectRatio: 4 / 4, // 預設 4:4 比例
+          viewMode: 1,
+          autoCropArea: 0.8,
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  // 切換比例功能
+  function setRatio(ratio, element) {
+    if (!cropper) return;
+    cropper.setAspectRatio(ratio);
+
+    // 更新按鈕樣式
+    document.querySelectorAll('.controls .btn').forEach(btn => {
+      if (!btn.classList.contains('btn-success')) {
+        btn.classList.remove('active');
+      }
+    });
+    element.classList.add('active');
+  }
+
+  // 執行裁切並輸出
+  function cropImage() {
+    if (!cropper) return;
+
+    // 取得 Canvas 並轉為 Base64/Blob
+    const canvas = cropper.getCroppedCanvas();
+    croppedResult.innerHTML = '';
+    
+    const croppedImg = document.createElement('img');
+    croppedImg.src = canvas.toDataURL('image/png');
+    croppedResult.appendChild(croppedImg);
+
+    // 設定下載連結
+    downloadBtn.href = canvas.toDataURL('image/png');
+    resultBox.style.display = 'block';
+    
+    // 平滑捲動至結果區
+    resultBox.scrollIntoView({ behavior: 'smooth' });
+  }
+</script>
+
+</body>
+</html>
