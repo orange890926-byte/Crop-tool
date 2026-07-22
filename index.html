@@ -3,196 +3,365 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>圖片線上裁切工具</title>
-  <!-- 導入 Cropper.js 樣式 -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+  <title>貼圖自動切割與去背工具</title>
+  <!-- 導入 JSZip 與 JSZip-Utils 庫，用於打包下載 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: #f5f7fa;
-      color: #333;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #1e1e24;
+      color: #e0e0e0;
       padding: 20px;
     }
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      background: #fff;
-      padding: 24px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-    }
-    h1 { margin-bottom: 20px; font-size: 24px; text-align: center; color: #2c3e50; }
+    .header { text-align: center; margin-bottom: 20px; }
+    .header h1 { font-size: 24px; color: #a78bfa; margin-bottom: 8px; }
     
-    /* 上傳區塊 */
-    .upload-box {
-      border: 2px dashed #cbd5e1;
-      padding: 30px;
-      text-align: center;
-      border-radius: 8px;
-      cursor: pointer;
-      background-color: #f8fafc;
-      transition: border-color 0.2s;
-    }
-    .upload-box:hover { border-color: #3b82f6; }
-    input[type="file"] { display: none; }
-
-    /* 工具控制區 */
-    .controls {
+    .main-layout {
       display: flex;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
       flex-wrap: wrap;
+    }
+
+    /* 左側：控制與原圖區 */
+    .left-panel {
+      flex: 1;
+      min-width: 320px;
+      background: #2b2b36;
+      padding: 20px;
+      border-radius: 12px;
+    }
+
+    /* 右側：預覽與輸出區 */
+    .right-panel {
+      flex: 1;
+      min-width: 320px;
+      background: #2b2b36;
+      padding: 20px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .control-group {
+      background: #363646;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    .control-group label { display: block; margin-bottom: 8px; font-weight: bold; font-size: 14px; }
+    
+    .btn-group { display: flex; gap: 10px; margin-bottom: 10px; }
+    .btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      background: #4f46e5;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .btn:hover { background: #4338ca; }
+    .btn.active { background: #10b981; }
+    .btn-download { background: #06b6d4; font-size: 16px; padding: 12px; }
+    .btn-download:hover { background: #0891b2; }
+
+    .color-picker-row {
+      display: flex;
+      align-items: center;
       gap: 10px;
-      margin: 20px 0;
+      margin-top: 8px;
+    }
+
+    /* 圖片顯示區域 */
+    .img-preview-container {
+      position: relative;
+      margin-top: 15px;
+      background: #1e1e24;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
       justify-content: center;
       align-items: center;
+      min-height: 200px;
     }
-    .btn {
-      padding: 8px 16px;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-      background-color: #fff;
-      cursor: pointer;
-      font-weight: 500;
-      transition: all 0.2s;
-    }
-    .btn:hover { background-color: #f3f4f6; border-color: #9ca3af; }
-    .btn.active { background-color: #2563eb; color: #fff; border-color: #2563eb; }
-    .btn-success { background-color: #10b981; color: #fff; border-color: #10b981; }
-    .btn-success:hover { background-color: #059669; }
+    #sourceImage { max-width: 100%; display: block; }
 
-    /* 圖片裁切預覽區 */
-    .img-container {
+    /* 右側切割結果網格 */
+    .grid-result {
+      display: grid;
+      gap: 10px;
+      margin-top: 15px;
       max-height: 500px;
-      margin-bottom: 20px;
-      display: none;
-      justify-content: center;
-      background: #000;
+      overflow-y: auto;
+      background: #1e1e24;
+      padding: 10px;
+      border-radius: 8px;
+      /* 透明棋盤格背景 */
+      background-image: linear-gradient(45deg, #2a2a2a 25%, transparent 25%), 
+                        linear-gradient(-45deg, #2a2a2a 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #2a2a2a 75%), 
+                        linear-gradient(-45deg, transparent 75%, #2a2a2a 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
     }
-    .img-container img { max-width: 100%; display: block; }
-    
-    /* 裁切後的預覽與下載區 */
-    .result-container {
-      margin-top: 20px;
-      text-align: center;
-      display: none;
+    .grid-4x4 { grid-template-columns: repeat(4, 1fr); }
+    .grid-5x8 { grid-template-columns: repeat(5, 1fr); }
+
+    .item-card {
+      position: relative;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid #444;
+      border-radius: 4px;
+      overflow: hidden;
     }
-    .result-container img {
-      max-width: 100%;
-      max-height: 300px;
-      border-radius: 6px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      margin-bottom: 12px;
+    .item-card img { width: 100%; display: block; }
+    .item-card .num-tag {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      font-size: 10px;
+      padding: 2px 4px;
+      border-radius: 3px;
     }
   </style>
 </head>
 <body>
 
-<div class="container">
-  <h1>線上圖片裁切工具</h1>
-
-  <!-- 上傳入口 -->
-  <div class="upload-box" onclick="document.getElementById('imageInput').click()">
-    <p>點擊上傳圖片 或 將圖片拖曳至此處</p>
-    <input type="file" id="imageInput" accept="image/*">
+  <div class="header">
+    <h1>✂️ 貼圖自動分割與去背工具</h1>
+    <p>支援 4x4 (16張) 及 5x8 (40張) 自動切割，一鍵去背並打包下載 ZIP</p>
   </div>
 
-  <!-- 比例選擇按鈕 -->
-  <div class="controls" id="controlPanel" style="display: none;">
-    <span>設定比例：</span>
-    <button class="btn active" onclick="setRatio(4/4, this)">4 : 4 (1:1)</button>
-    <button class="btn" onclick="setRatio(5/8, this)">5 : 8</button>
-    <button class="btn" onclick="setRatio(NaN, this)">自由比例</button>
-    <button class="btn btn-success" onclick="cropImage()">裁切圖片</button>
+  <div class="main-layout">
+    <!-- 左側面板：設定與上傳 -->
+    <div class="left-panel">
+      <div class="control-group">
+        <label>1. 上傳圖片</label>
+        <input type="file" id="uploadInput" accept="image/*" style="width: 100%;">
+      </div>
+
+      <div class="control-group">
+        <label>2. 選擇切割網格陣列</label>
+        <div class="btn-group">
+          <button class="btn active" id="btn4x4" onclick="setGrid(4, 4)">4 x 4 (16張)</button>
+          <button class="btn" id="btn5x8" onclick="setGrid(5, 8)">5 x 8 (40張)</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>3. 背景容差去背 (Color Key)</label>
+        <div class="color-picker-row">
+          <span>取樣顏色：</span>
+          <input type="color" id="bgColorPicker" value="#ffffff">
+          <label><input type="checkbox" id="enableBgRemove" checked> 開啟去背</label>
+        </div>
+        <div style="margin-top: 10px;">
+          <span>容許誤差 (Tolerance)：</span>
+          <input type="range" id="tolerance" min="0" max="100" value="20" style="width: 100%;">
+        </div>
+      </div>
+
+      <div class="img-preview-container">
+        <img id="sourceImage" src="" alt="請上傳貼圖大圖" style="display:none;">
+      </div>
+    </div>
+
+    <!-- 右側面板：切割成果與下載 -->
+    <div class="right-panel">
+      <button class="btn btn-download" id="downloadZipBtn" onclick="downloadZip()" disabled>📦 下載全部 ZIP (001~040)</button>
+      
+      <div style="margin-top: 15px; display: flex; justify-content: space-between;">
+        <span>切割預覽 (已處理)：</span>
+        <span id="countTag">0 張</span>
+      </div>
+
+      <div id="gridResult" class="grid-result grid-4x4">
+        <!-- 切割結果會動態生成於此 -->
+      </div>
+    </div>
   </div>
 
-  <!-- 裁切編輯器 -->
-  <div class="img-container" id="imgBox">
-    <img id="image" src="" alt="待裁切圖片">
-  </div>
+  <script>
+    let cols = 4;
+    let rows = 4;
+    let croppedCanvases = [];
 
-  <!-- 輸出結果 -->
-  <div class="result-container" id="resultBox">
-    <h3>裁切結果：</h3>
-    <div id="croppedResult"></div>
-    <br>
-    <a id="downloadBtn" class="btn btn-success" download="cropped-image.png">下載裁切圖片</a>
-  </div>
-</div>
+    const uploadInput = document.getElementById('uploadInput');
+    const sourceImage = document.getElementById('sourceImage');
+    const bgColorPicker = document.getElementById('bgColorPicker');
+    const enableBgRemove = document.getElementById('enableBgRemove');
+    const toleranceInput = document.getElementById('tolerance');
+    const gridResult = document.getElementById('gridResult');
+    const countTag = document.getElementById('countTag');
+    const downloadZipBtn = document.getElementById('downloadZipBtn');
 
-<!-- 導入 Cropper.js Core -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-<script>
-  let cropper = null;
-  const imageInput = document.getElementById('imageInput');
-  const image = document.getElementById('image');
-  const imgBox = document.getElementById('imgBox');
-  const controlPanel = document.getElementById('controlPanel');
-  const resultBox = document.getElementById('resultBox');
-  const croppedResult = document.getElementById('croppedResult');
-  const downloadBtn = document.getElementById('downloadBtn');
-
-  // 載入圖片事件
-  imageInput.addEventListener('change', function (e) {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      const file = files[0];
-      const reader = new FileReader();
-
-      reader.onload = function (e) {
-        image.src = e.target.result;
-        imgBox.style.display = 'flex';
-        controlPanel.style.display = 'flex';
-        resultBox.style.display = 'none';
-
-        // 初始化或重新載入 Cropper
-        if (cropper) {
-          cropper.destroy();
-        }
-        
-        cropper = new Cropper(image, {
-          aspectRatio: 4 / 4, // 預設 4:4 比例
-          viewMode: 1,
-          autoCropArea: 0.8,
-        });
-      };
-      reader.readAsDataURL(file);
-    }
-  });
-
-  // 切換比例功能
-  function setRatio(ratio, element) {
-    if (!cropper) return;
-    cropper.setAspectRatio(ratio);
-
-    // 更新按鈕樣式
-    document.querySelectorAll('.controls .btn').forEach(btn => {
-      if (!btn.classList.contains('btn-success')) {
-        btn.classList.remove('active');
+    // 1. 監聽圖片上傳
+    uploadInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          sourceImage.src = event.target.result;
+          sourceImage.style.display = 'block';
+          sourceImage.onload = () => {
+            // 自動取圖片左上角第一個像素作為預設去背顏色
+            autoDetectBgColor();
+            processImage();
+          };
+        };
+        reader.readAsDataURL(file);
       }
     });
-    element.classList.add('active');
-  }
 
-  // 執行裁切並輸出
-  function cropImage() {
-    if (!cropper) return;
+    // 2. 切換 4x4 或 5x8
+    function setGrid(c, r) {
+      cols = c;
+      rows = r;
+      document.getElementById('btn4x4').classList.toggle('active', c === 4);
+      document.getElementById('btn5x8').classList.toggle('active', c === 5);
+      
+      gridResult.className = `grid-result ${c === 4 ? 'grid-4x4' : 'grid-5x8'}`;
+      processImage();
+    }
 
-    // 取得 Canvas 並轉為 Base64/Blob
-    const canvas = cropper.getCroppedCanvas();
-    croppedResult.innerHTML = '';
-    
-    const croppedImg = document.createElement('img');
-    croppedImg.src = canvas.toDataURL('image/png');
-    croppedResult.appendChild(croppedImg);
+    // 監聽控制選項變更
+    bgColorPicker.addEventListener('input', processImage);
+    enableBgRemove.addEventListener('change', processImage);
+    toleranceInput.addEventListener('input', processImage);
 
-    // 設定下載連結
-    downloadBtn.href = canvas.toDataURL('image/png');
-    resultBox.style.display = 'block';
-    
-    // 平滑捲動至結果區
-    resultBox.scrollIntoView({ behavior: 'smooth' });
-  }
-</script>
+    // 自動偵測左上角顏色
+    function autoDetectBgColor() {
+      const cvs = document.createElement('canvas');
+      const ctx = cvs.getContext('2d');
+      cvs.width = sourceImage.naturalWidth;
+      cvs.height = sourceImage.naturalHeight;
+      ctx.drawImage(sourceImage, 0, 0);
+      const pixel = ctx.getImageData(5, 5, 1, 1).data; // 抓 (5,5) 位置
+      const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
+      bgColorPicker.value = hex;
+    }
 
+    // 3. 核心處理邏輯：分割與去背
+    function processImage() {
+      if (!sourceImage.src || sourceImage.style.display === 'none') return;
+
+      gridResult.innerHTML = '';
+      croppedCanvases = [];
+
+      const imgW = sourceImage.naturalWidth;
+      const imgH = sourceImage.naturalHeight;
+      const cellW = imgW / cols;
+      const cellH = imgH / rows;
+
+      const targetRGB = hexToRgb(bgColorPicker.value);
+      const tol = parseInt(toleranceInput.value);
+      const doRemove = enableBgRemove.checked;
+
+      let total = cols * rows;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const canvas = document.createElement('canvas');
+          canvas.width = cellW;
+          canvas.height = cellH;
+          const ctx = canvas.getContext('2d');
+
+          // 切割繪製小圖
+          ctx.drawImage(sourceImage, c * cellW, r * cellH, cellW, cellH, 0, 0, cellW, cellH);
+
+          // 色彩去除 (Chroma Key 去背)
+          if (doRemove && targetRGB) {
+            const imgData = ctx.getImageData(0, 0, cellW, cellH);
+            const data = imgData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+              const rVal = data[i];
+              const gVal = data[i + 1];
+              const bVal = data[i + 2];
+
+              // 計算歐幾里得顏色距離
+              const dist = Math.sqrt(
+                Math.pow(rVal - targetRGB.r, 2) +
+                Math.pow(gVal - targetRGB.g, 2) +
+                Math.pow(bVal - targetRGB.b, 2)
+              );
+
+              if (dist <= tol * 2.55) { // 容許度映射至 0~255
+                data[i + 3] = 0; // 設為透明
+              }
+            }
+            ctx.putImageData(imgData, 0, 0);
+          }
+
+          croppedCanvases.push(canvas);
+
+          // 渲染至右側預覽區
+          const index = croppedCanvases.length;
+          const formattedIndex = String(index).padStart(3, '0');
+
+          const card = document.createElement('div');
+          card.className = 'item-card';
+
+          const img = document.createElement('img');
+          img.src = canvas.toDataURL('image/png');
+
+          const tag = document.createElement('div');
+          tag.className = 'num-tag';
+          tag.innerText = formattedIndex;
+
+          card.appendChild(img);
+          card.appendChild(tag);
+          gridResult.appendChild(card);
+        }
+      }
+
+      countTag.innerText = `${croppedCanvases.length} 張`;
+      downloadZipBtn.disabled = false;
+    }
+
+    // HEX 轉 RGB 輔助函數
+    function hexToRgb(hex) {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : null;
+    }
+
+    // 4. 打包 ZIP 下載功能 (檔名 001.png ~ 040.png)
+    function downloadZip() {
+      if (croppedCanvases.length === 0) return;
+
+      const zip = new JSZip();
+      const folder = zip.folder("stickers");
+
+      croppedCanvases.forEach((canvas, idx) => {
+        const fileName = `${String(idx + 1).padStart(3, '0')}.png`;
+        // 去除 Base64 前綴
+        const dataUrl = canvas.toDataURL('image/png');
+        const base64Data = dataUrl.replace(/^data:image\/(png|jpg);base64,/, "");
+        
+        folder.file(fileName, base64Data, { base64: true });
+      });
+
+      downloadZipBtn.innerText = "⏳ 正在打包中...";
+
+      zip.generateAsync({ type: "blob" }).then(function (content) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = "cropped_stickers.zip";
+        a.click();
+        downloadZipBtn.innerText = "📦 下載全部 ZIP (001~040)";
+      });
+    }
+  </script>
 </body>
 </html>
