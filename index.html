@@ -388,7 +388,7 @@
     <h1>田 CropAlpha 自由網格與單圖精確裁切工具</h1>
     <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
       
-      <!-- 👁 新增：檢視背景顏色切換 -->
+      <!-- 👁 檢視背景顏色切換 -->
       <div style="display:flex; align-items:center; gap:6px;">
         <span style="font-size:13px; font-weight:bold; color:#a78bfa;">👁 檢視背景：</span>
         <select id="viewBgMode" onchange="changeViewBgMode()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold; cursor:pointer;">
@@ -406,7 +406,7 @@
         </select>
       </div>
 
-      <div class="badge">已儲存：<span id="savedCount">0</span> / 40 張</div>
+      <div class="badge">已儲存：<span id="savedCount">0</span> 張</div>
     </div>
   </div>
 
@@ -532,7 +532,7 @@
         <span class="tool-title">🎯 單張去背容差 (Tolerance) 微調</span>
         <div class="slider-container">
           <span>容差強度：</span>
-          <input type="range" id="singleToleranceSlider" min="1" max="100" value="20" oninput="updateModalRender()">
+          <input type="range" id="singleToleranceSlider" min="1" max="100" value="20" oninput="document.getElementById('singleTolVal').innerText=this.value; updateModalRender();">
           <span id="singleTolVal" style="min-width:35px; text-align:right; font-weight:bold; color:#a78bfa;">20</span>
         </div>
       </div>
@@ -557,19 +557,19 @@
 
         <div class="slider-container">
           <span>縮放大小：</span>
-          <input type="range" id="scaleSlider" min="30" max="150" value="100" oninput="updateModalRender()">
+          <input type="range" id="scaleSlider" min="30" max="150" value="100" oninput="document.getElementById('scaleVal').innerText=this.value+'%'; updateModalRender();">
           <span id="scaleVal" style="min-width:35px; text-align:right; color:#a78bfa;">100%</span>
         </div>
 
         <div class="slider-container">
           <span>水平位置 (X)：</span>
-          <input type="range" id="offsetXSlider" min="-100" max="100" value="0" oninput="updateModalRender()">
+          <input type="range" id="offsetXSlider" min="-100" max="100" value="0" oninput="document.getElementById('offsetXVal').innerText=this.value; updateModalRender();">
           <span id="offsetXVal" style="min-width:35px; text-align:right; color:#a78bfa;">0</span>
         </div>
 
         <div class="slider-container">
           <span>垂直位置 (Y)：</span>
-          <input type="range" id="offsetYSlider" min="-100" max="100" value="0" oninput="updateModalRender()">
+          <input type="range" id="offsetYSlider" min="-100" max="100" value="0" oninput="document.getElementById('offsetYVal').innerText=this.value; updateModalRender();">
           <span id="offsetYVal" style="min-width:35px; text-align:right; color:#a78bfa;">0</span>
         </div>
       </div>
@@ -973,48 +973,33 @@
       }
     }
 
-    /* ✂ 單圖重新裁切 Modal */
-    const recropModal = document.getElementById('recropModal');
-    const recropBgCanvas = document.getElementById('recropBgCanvas');
-    const recropBox = document.getElementById('recropBox');
-
+    /* ✂ 單圖重新裁切 Modal 功能組 */
     function openRecropModal(idx) {
       if (!currentImage) return;
       currentEditIndex = idx;
       document.getElementById('recropTargetIdx').innerText = String(idx + 1).padStart(3, '0');
 
-      recropBgCanvas.width = currentImage.width;
-      recropBgCanvas.height = currentImage.height;
-      const rCtx = recropBgCanvas.getContext('2d');
-      rCtx.drawImage(currentImage, 0, 0);
+      const bgCanvas = document.getElementById('recropBgCanvas');
+      bgCanvas.width = currentImage.width;
+      bgCanvas.height = currentImage.height;
+      const bgCtx = bgCanvas.getContext('2d');
+      bgCtx.drawImage(currentImage, 0, 0);
 
-      if (savedStickers[idx] && savedStickers[idx].boxData) {
-        singleCropBox = { ...savedStickers[idx].boxData };
-      } else {
-        singleCropBox = { x: currentImage.width / 4, y: currentImage.height / 4, w: currentImage.width / 2, h: currentImage.height / 2 };
-      }
+      const targetBox = savedStickers[idx]?.boxData || { x: 10, y: 10, w: 100, h: 100 };
+      singleCropBox = { ...targetBox };
 
-      updateRecropBoxStyle();
-      initRecropEvents();
-      recropModal.style.display = 'flex';
+      const recropBox = document.getElementById('recropBox');
+      updateBoxStyle(recropBox, singleCropBox);
+      setupRecropBoxEvents(recropBox);
+
+      document.getElementById('recropModal').style.display = 'flex';
     }
 
-    function updateRecropBoxStyle() {
-      recropBox.style.left = `${singleCropBox.x}px`;
-      recropBox.style.top = `${singleCropBox.y}px`;
-      recropBox.style.width = `${singleCropBox.w}px`;
-      recropBox.style.height = `${singleCropBox.h}px`;
-    }
-
-    let isRecropInit = false;
-    function initRecropEvents() {
-      if (isRecropInit) return;
-      isRecropInit = true;
-
+    function setupRecropBoxEvents(boxDiv) {
       let isAction = false, actionType = null, activeHandle = null;
       let startX, startY, initX, initY, initW, initH;
 
-      recropBox.addEventListener('mousedown', (e) => {
+      const onMouseDown = (e) => {
         isAction = true;
         startX = e.clientX; startY = e.clientY;
         initX = singleCropBox.x; initY = singleCropBox.y;
@@ -1026,10 +1011,10 @@
           actionType = 'move';
         }
         e.stopPropagation();
-      });
+      };
 
-      window.addEventListener('mousemove', (e) => {
-        if (!isAction || recropModal.style.display !== 'flex') return;
+      const onMouseMove = (e) => {
+        if (!isAction) return;
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
 
@@ -1049,145 +1034,164 @@
             singleCropBox.y = initY + (initH - newH); singleCropBox.h = newH;
           }
         }
-        updateRecropBoxStyle();
-      });
+        updateBoxStyle(boxDiv, singleCropBox);
+      };
 
-      window.addEventListener('mouseup', () => { isAction = false; });
+      const onMouseUp = () => { isAction = false; };
+
+      boxDiv.onmousedown = onMouseDown;
+      window.onmousemove = onMouseMove;
+      window.onmouseup = onMouseUp;
     }
 
     function applySingleRecrop() {
       if (currentEditIndex === null) return;
+      const tol = savedStickers[currentEditIndex]?.tolerance || parseInt(document.getElementById('tolerance').value);
+      savedStickers[currentEditIndex] = cropAndProcessBox(singleCropBox, tol);
       
-      const currentTol = savedStickers[currentEditIndex] ? savedStickers[currentEditIndex].tolerance : parseInt(document.getElementById('tolerance').value);
-      savedStickers[currentEditIndex] = cropAndProcessBox(singleCropBox, currentTol);
-
       if (gridBoxesData[currentEditIndex]) {
         gridBoxesData[currentEditIndex] = { ...singleCropBox, id: currentEditIndex };
-        const boxDom = document.getElementById(`grid-box-${currentEditIndex}`);
-        if (boxDom) updateBoxStyle(boxDom, singleCropBox);
+        const mainBoxElem = document.getElementById(`grid-box-${currentEditIndex}`);
+        if (mainBoxElem) updateBoxStyle(mainBoxElem, singleCropBox);
       }
-
+      
       updatePreview();
       closeRecropModal();
     }
 
     function closeRecropModal() {
-      recropModal.style.display = 'none';
+      document.getElementById('recropModal').style.display = 'none';
       currentEditIndex = null;
     }
 
-    /* 🧹 單圖精細編輯 Modal (含專屬容差) */
-    const modalCanvas = document.getElementById('modalCanvas');
-    const mCtx = modalCanvas.getContext('2d');
-
+    /* 🪄 單圖精細編輯 Modal (修邊與微調) 功能組 */
     function openEditModal(idx) {
       currentEditIndex = idx;
+      const sticker = savedStickers[idx];
+      if (!sticker) return;
+
       document.getElementById('editTargetIdx').innerText = String(idx + 1).padStart(3, '0');
-      document.getElementById('editModal').style.display = 'flex';
+      
+      const tolSlider = document.getElementById('singleToleranceSlider');
+      tolSlider.value = sticker.tolerance || 20;
+      document.getElementById('singleTolVal').innerText = tolSlider.value;
 
-      modalCanvas.width = targetWidth;
-      modalCanvas.height = targetHeight;
+      resetTransform();
 
+      // 初始化橡皮擦透明繪圖層
       modalEraserCanvas = document.createElement('canvas');
-      modalEraserCanvas.width = targetWidth;
-      modalEraserCanvas.height = targetHeight;
+      modalEraserCanvas.width = sticker.rawCanvas.width;
+      modalEraserCanvas.height = sticker.rawCanvas.height;
 
-      const currentItem = savedStickers[idx];
-      const initialTol = currentItem ? (currentItem.tolerance || document.getElementById('tolerance').value) : 20;
-
-      document.getElementById('singleToleranceSlider').value = initialTol;
-      document.getElementById('singleTolVal').innerText = initialTol;
-      document.getElementById('scaleSlider').value = 100;
-      document.getElementById('offsetXSlider').value = 0;
-      document.getElementById('offsetYSlider').value = 0;
-
+      setupEraserEvents();
       updateModalRender();
-    }
 
-    function updateModalRender() {
-      if (currentEditIndex === null || !savedStickers[currentEditIndex]) return;
-
-      const scale = parseInt(document.getElementById('scaleSlider').value);
-      const offsetX = parseInt(document.getElementById('offsetXSlider').value);
-      const offsetY = parseInt(document.getElementById('offsetYSlider').value);
-      const hex = document.getElementById('bgColor').value;
-      const tol = parseInt(document.getElementById('singleToleranceSlider').value);
-
-      document.getElementById('singleTolVal').innerText = tol;
-      document.getElementById('scaleVal').innerText = scale + '%';
-      document.getElementById('offsetXVal').innerText = offsetX;
-      document.getElementById('offsetYVal').innerText = offsetY;
-
-      const rawCvs = savedStickers[currentEditIndex].rawCanvas;
-      const processCvs = document.createElement('canvas');
-      processCvs.width = rawCvs.width;
-      processCvs.height = rawCvs.height;
-      const pCtx = processCvs.getContext('2d');
-      pCtx.drawImage(rawCvs, 0, 0);
-
-      removeBg(pCtx, rawCvs.width, rawCvs.height, hex, tol);
-      const targetCvs = createTargetCanvas(processCvs, scale, offsetX, offsetY);
-
-      mCtx.clearRect(0, 0, targetWidth, targetHeight);
-      mCtx.drawImage(targetCvs, 0, 0);
-
-      if (modalEraserCanvas) {
-        mCtx.save();
-        mCtx.globalCompositeOperation = 'destination-out';
-        mCtx.drawImage(modalEraserCanvas, 0, 0);
-        mCtx.restore();
-      }
-    }
-
-    modalCanvas.addEventListener('mousedown', e => { isErasing = true; drawEraser(e); });
-    modalCanvas.addEventListener('mousemove', e => { if(isErasing) drawEraser(e); });
-    modalCanvas.addEventListener('mouseup', () => isErasing = false);
-    modalCanvas.addEventListener('mouseleave', () => isErasing = false);
-
-    function drawEraser(e) {
-      if (!modalEraserCanvas) return;
-      const rect = modalCanvas.getBoundingClientRect();
-      const scaleX = targetWidth / rect.width;
-      const scaleY = targetHeight / rect.height;
-
-      const x = (e.clientX - rect.left) * scaleX;
-      const y = (e.clientY - rect.top) * scaleY;
-      const size = parseInt(document.getElementById('eraserSize').value);
-
-      const eCtx = modalEraserCanvas.getContext('2d');
-      eCtx.fillStyle = '#000000';
-      eCtx.beginPath();
-      eCtx.arc(x, y, size / 2, 0, Math.PI * 2);
-      eCtx.fill();
-
-      updateModalRender();
-    }
-
-    function resetEraserLayer() {
-      if (modalEraserCanvas) {
-        modalEraserCanvas.getContext('2d').clearRect(0, 0, targetWidth, targetHeight);
-        updateModalRender();
-      }
+      document.getElementById('editModal').style.display = 'flex';
     }
 
     function resetTransform() {
       document.getElementById('scaleSlider').value = 100;
+      document.getElementById('scaleVal').innerText = '100%';
       document.getElementById('offsetXSlider').value = 0;
+      document.getElementById('offsetXVal').innerText = '0';
       document.getElementById('offsetYSlider').value = 0;
+      document.getElementById('offsetYVal').innerText = '0';
+      if (currentEditIndex !== null) updateModalRender();
+    }
+
+    function resetEraserLayer() {
+      if (!modalEraserCanvas || currentEditIndex === null) return;
+      const eCtx = modalEraserCanvas.getContext('2d');
+      eCtx.clearRect(0, 0, modalEraserCanvas.width, modalEraserCanvas.height);
       updateModalRender();
+    }
+
+    function setupEraserEvents() {
+      const modalCanvas = document.getElementById('modalCanvas');
+      
+      const drawEraser = (e) => {
+        if (!isErasing || !modalEraserCanvas || currentEditIndex === null) return;
+        const rect = modalCanvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        const scaleX = modalEraserCanvas.width / rect.width;
+        const scaleY = modalEraserCanvas.height / rect.height;
+
+        const x = (clientX - rect.left) * scaleX;
+        const y = (clientY - rect.top) * scaleY;
+
+        const size = parseInt(document.getElementById('eraserSize').value);
+        const eCtx = modalEraserCanvas.getContext('2d');
+        eCtx.fillStyle = '#000000';
+        eCtx.beginPath();
+        eCtx.arc(x, y, size / 2, 0, Math.PI * 2);
+        eCtx.fill();
+
+        updateModalRender();
+      };
+
+      modalCanvas.onmousedown = (e) => { isErasing = true; drawEraser(e); };
+      modalCanvas.onmousemove = drawEraser;
+      window.onmouseup = () => { isErasing = false; };
+
+      modalCanvas.ontouchstart = (e) => { isErasing = true; drawEraser(e); };
+      modalCanvas.ontouchmove = drawEraser;
+      window.ontouchend = () => { isErasing = false; };
+    }
+
+    function updateModalRender() {
+      if (currentEditIndex === null) return;
+      const sticker = savedStickers[currentEditIndex];
+      if (!sticker) return;
+
+      const singleTol = parseInt(document.getElementById('singleToleranceSlider').value);
+      const hex = document.getElementById('bgColor').value;
+
+      // 複製 rawCanvas 重新去背
+      const processCvs = document.createElement('canvas');
+      processCvs.width = sticker.rawCanvas.width;
+      processCvs.height = sticker.rawCanvas.height;
+      const pCtx = processCvs.getContext('2d');
+      pCtx.drawImage(sticker.rawCanvas, 0, 0);
+
+      removeBg(pCtx, processCvs.width, processCvs.height, hex, singleTol);
+
+      // 套用橡皮擦遮罩 (Destination-Out)
+      if (modalEraserCanvas) {
+        pCtx.globalCompositeOperation = 'destination-out';
+        pCtx.drawImage(modalEraserCanvas, 0, 0);
+        pCtx.globalCompositeOperation = 'source-over';
+      }
+
+      // 計算縮放與位移
+      const scalePct = parseInt(document.getElementById('scaleSlider').value);
+      const offX = parseInt(document.getElementById('offsetXSlider').value);
+      const offY = parseInt(document.getElementById('offsetYSlider').value);
+
+      const renderCvs = createTargetCanvas(processCvs, scalePct, offX, offY);
+
+      // 渲染至 Modal 預覽 Canvas
+      const modalCanvas = document.getElementById('modalCanvas');
+      modalCanvas.width = targetWidth;
+      modalCanvas.height = targetHeight;
+      const mCtx = modalCanvas.getContext('2d');
+      mCtx.clearRect(0, 0, targetWidth, targetHeight);
+      mCtx.drawImage(renderCvs, 0, 0);
     }
 
     function applyModalEdit() {
       if (currentEditIndex === null) return;
-      const newFinalCvs = document.createElement('canvas');
-      newFinalCvs.width = targetWidth;
-      newFinalCvs.height = targetHeight;
-      newFinalCvs.getContext('2d').drawImage(modalCanvas, 0, 0);
+      const modalCanvas = document.getElementById('modalCanvas');
+      
+      const finalCvs = document.createElement('canvas');
+      finalCvs.width = targetWidth;
+      finalCvs.height = targetHeight;
+      const fCtx = finalCvs.getContext('2d');
+      fCtx.drawImage(modalCanvas, 0, 0);
 
-      const newTol = parseInt(document.getElementById('singleToleranceSlider').value);
-
-      savedStickers[currentEditIndex].finalCanvas = newFinalCvs;
-      savedStickers[currentEditIndex].tolerance = newTol;
+      savedStickers[currentEditIndex].tolerance = parseInt(document.getElementById('singleToleranceSlider').value);
+      savedStickers[currentEditIndex].finalCanvas = finalCvs;
 
       updatePreview();
       closeModal();
@@ -1198,40 +1202,45 @@
       currentEditIndex = null;
     }
 
-    function downloadZip() {
-      const validStickers = savedStickers.filter(Boolean);
-      if (validStickers.length === 0) return alert('預覽區內沒有圖片可以下載！');
-
-      const zip = new JSZip();
-      const type = document.getElementById('exportType').value;
-      const folderName = type === 'emoji' ? 'LINE_Emoji' : 'LINE_Stickers';
-      const folder = zip.folder(folderName);
-
-      validStickers.forEach((item, idx) => {
-        const fileName = `${String(idx + 1).padStart(3, '0')}.png`;
-        const base64 = item.finalCanvas.toDataURL('image/png').split(',')[1];
-        folder.file(fileName, base64, { base64: true });
-      });
-
-      if (type === 'emoji' && validStickers.length > 0) {
-        const tabCvs = createTabCanvas(validStickers[0].finalCanvas);
-        const tabBase64 = tabCvs.toDataURL('image/png').split(',')[1];
-        folder.file("tab.png", tabBase64, { base64: true });
+    /* ⬇ 下載 ZIP 檔案包 */
+    async function downloadZip() {
+      const activeStickers = savedStickers.filter(Boolean);
+      if (activeStickers.length === 0) {
+        alert('目前沒有可下載的圖案，請先上傳圖片或繪製網格！');
+        return;
       }
 
-      zip.generateAsync({ type: "blob" }).then(content => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(content);
-        a.download = `${folderName}_${targetWidth}x${targetHeight}.zip`;
-        a.click();
+      const zip = new JSZip();
+      const exportType = document.getElementById('exportType').value;
+
+      activeStickers.forEach((item, index) => {
+        const fileName = String(index + 1).padStart(2, '0') + '.png';
+        const dataUrl = item.finalCanvas.toDataURL('image/png');
+        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        zip.file(fileName, base64Data, { base64: true });
       });
+
+      // 表情貼模式下自動附加 tab.png (選取第一張貼圖等比例縮放為 96x74)
+      if (exportType === 'emoji' && activeStickers.length > 0) {
+        const tabCanvas = createTabCanvas(activeStickers[0].finalCanvas);
+        const tabDataUrl = tabCanvas.toDataURL('image/png');
+        const tabBase64 = tabDataUrl.replace(/^data:image\/png;base64,/, "");
+        zip.file('tab.png', tabBase64, { base64: true });
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(content);
+      link.download = `CropAlpha_Stickers_${Date.now()}.zip`;
+      link.click();
     }
 
+    /* ↺ 重設全部 */
     function resetAll() {
-      if (confirm('確定要全部重來嗎？')) {
+      if (confirm('確定要清除所有圖片與設定重來嗎？')) {
+        currentImage = null;
         savedStickers = [];
         gridBoxesData = [];
-        currentImage = null;
         ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
         gridOverlay.innerHTML = '';
         placeholderText.style.display = 'block';
