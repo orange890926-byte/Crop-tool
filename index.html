@@ -58,17 +58,17 @@
       gap: 12px;
     }
 
-    /* 主畫布與互動層 (對邊界控制點優化) */
+    /* 主畫布與互動層 */
     .canvas-wrapper {
       position: relative;
       background: #000;
       border-radius: 6px;
       overflow: auto;
-      padding: 25px; /* 留出充分空間給頂部/邊界的控制點 */
+      padding: 25px;
       max-height: 75vh;
       display: flex;
       justify-content: center;
-      align-items: flex-start; /* 靠上對齊 */
+      align-items: flex-start;
       border: 2px dashed #374151;
       user-select: none;
     }
@@ -221,7 +221,6 @@
       margin-bottom: 12px;
     }
 
-    /* 背景預覽樣式類別 */
     .bg-checkerboard {
       background-image: linear-gradient(45deg, #1c1c22 25%, transparent 25%), 
                         linear-gradient(-45deg, #1c1c22 25%, transparent 25%), 
@@ -244,7 +243,6 @@
       transition: background 0.3s;
     }
 
-    /* 拖拉排序卡片樣式 */
     .sticker-item {
       position: relative;
       background: rgba(255,255,255,0.05);
@@ -339,16 +337,16 @@
       border: 1px solid #374151;
     }
 
-    /* 單圖重新裁切專用 Wrapper：解決頂部切頭 + 支持滾動聚焦 */
+    /* 單圖重新裁切 Wrapper */
     .crop-modal-wrapper {
       position: relative;
       background: #000;
       border: 1px solid #4b5563;
       max-height: 60vh;
-      padding: 25px; /* 給予適當內邊距，防控制點被壓住 */
+      padding: 25px;
       overflow: auto;
       display: flex;
-      justify-content: flex-start; /* 靠左上以精確計算聚焦 Scroll */
+      justify-content: flex-start;
       align-items: flex-start;
       border-radius: 6px;
     }
@@ -397,7 +395,6 @@
   <div class="top-bar">
     <h1>田 CropAlpha 自由網格與單圖精確裁切工具</h1>
     <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-      
       <div style="display:flex; align-items:center; gap:6px;">
         <span style="font-size:13px; font-weight:bold; color:#a78bfa;">👁 檢視背景：</span>
         <select id="viewBgMode" onchange="changeViewBgMode()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold; cursor:pointer;">
@@ -467,9 +464,9 @@
       
       <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
         💡 <b>提示：</b><br>
-        1. 下方預覽區的圖片，可直接<b>「拖拉挪動」</b>以改變輸出順序！<br>
-        2. 已加入<b> Alpha 1px 邊緣縮減技術</b>，有效排除白邊殘色而不掉漆。<br>
-        3. 單圖重裁已支援<b>自動定位聚焦</b>。
+        1. 母片網格框現在會<b>實時同步單圖重裁後的座標</b>！<br>
+        2. 下方預覽區可隨意拖拉順序，母片編號也會跟著連動。<br>
+        3. 單圖重裁視窗會自動<b>置中聚焦</b>到該號圖案。
       </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
@@ -712,7 +709,6 @@
 
     function generateGridOverlay() {
       if (!currentImage) return;
-      gridOverlay.innerHTML = '';
       gridBoxesData = [];
 
       const mode = document.getElementById('gridMode').value;
@@ -738,10 +734,19 @@
             h: Math.floor(cellH)
           };
           gridBoxesData.push(boxData);
-          createResizableBoxDOM(boxData);
         }
       }
+      renderMainGridOverlay();
       processAllGridBoxes();
+    }
+
+    /* 🔄 重新繪製母片上所有的 DOM 框框，確保 100% 同步編號與位置 */
+    function renderMainGridOverlay() {
+      gridOverlay.innerHTML = '';
+      gridBoxesData.forEach((box, idx) => {
+        box.id = idx; // 強制重置序號
+        createResizableBoxDOM(box);
+      });
     }
 
     function createResizableBoxDOM(box) {
@@ -809,6 +814,7 @@
     }
 
     function updateBoxStyle(boxDiv, box) {
+      if(!boxDiv) return;
       boxDiv.style.left = `${box.x}px`;
       boxDiv.style.top = `${box.y}px`;
       boxDiv.style.width = `${box.w}px`;
@@ -856,7 +862,6 @@
       processAllGridBoxes();
     }
 
-    /* 🔥 高級去背演算法：雙階 Alpha 去殘色邊緣 */
     function removeBg(cCtx, w, h, hex, toleranceVal) {
       const imgData = cCtx.getImageData(0, 0, w, h);
       const data = imgData.data;
@@ -1027,11 +1032,12 @@
         const movedItem = savedStickers.splice(draggedIndex, 1)[0];
         savedStickers.splice(targetIndex, 0, movedItem);
 
-        if (gridBoxesData.length === savedStickers.length) {
+        if (gridBoxesData.length >= savedStickers.length) {
           const movedBox = gridBoxesData.splice(draggedIndex, 1)[0];
           gridBoxesData.splice(targetIndex, 0, movedBox);
         }
 
+        renderMainGridOverlay(); // 🔥 排序改變，母片框框與編號同步重新刷新！
         updatePreview();
       }
       return false;
@@ -1048,10 +1054,9 @@
     function removeSticker(idx) {
       savedStickers.splice(idx, 1);
       if (gridBoxesData[idx]) {
-        const boxElem = document.getElementById(`grid-box-${idx}`);
-        if (boxElem) boxElem.remove();
         gridBoxesData.splice(idx, 1);
       }
+      renderMainGridOverlay(); // 🔥 刪除圖片，母片網格同步刷新
       updatePreview();
     }
 
@@ -1064,7 +1069,7 @@
       }
     }
 
-    /* ✂ 單圖重新裁切 Modal 功能組（已加入自動聚焦置中邏輯） */
+    /* ✂ 單圖重新裁切 Modal 功能組 */
     function openRecropModal(idx) {
       if (!currentImage) return;
       currentEditIndex = idx;
@@ -1086,10 +1091,10 @@
       const modalWrapper = document.getElementById('cropModalWrapper');
       document.getElementById('recropModal').style.display = 'flex';
 
-      // 🎯 自動聚焦將該張圖片的框框捲動到 Modal 容器中央！
+      // 🎯 自動聚焦聚焦置中 (考慮內部 Wrapper 25px safe padding)
       setTimeout(() => {
-        const centerX = singleCropBox.x + (singleCropBox.w / 2);
-        const centerY = singleCropBox.y + (singleCropBox.h / 2);
+        const centerX = singleCropBox.x + (singleCropBox.w / 2) + 25;
+        const centerY = singleCropBox.y + (singleCropBox.h / 2) + 25;
 
         modalWrapper.scrollLeft = Math.max(0, centerX - (modalWrapper.clientWidth / 2));
         modalWrapper.scrollTop = Math.max(0, centerY - (modalWrapper.clientHeight / 2));
@@ -1145,15 +1150,21 @@
       window.onmouseup = onMouseUp;
     }
 
+    /* 🔥 關鍵更新：確定重裁時，100% 同步母片上的對應虛線框 */
     function applySingleRecrop() {
       if (currentEditIndex === null) return;
       const tol = savedStickers[currentEditIndex]?.tolerance || parseInt(document.getElementById('tolerance').value);
-      savedStickers[currentEditIndex] = cropAndProcessBox(singleCropBox, tol);
       
-      if (gridBoxesData[currentEditIndex]) {
-        gridBoxesData[currentEditIndex] = { ...singleCropBox, id: currentEditIndex };
-        const mainBoxElem = document.getElementById(`grid-box-${currentEditIndex}`);
-        if (mainBoxElem) updateBoxStyle(mainBoxElem, singleCropBox);
+      // 1. 更新資料層
+      savedStickers[currentEditIndex] = cropAndProcessBox(singleCropBox, tol);
+      gridBoxesData[currentEditIndex] = { ...singleCropBox, id: currentEditIndex };
+      
+      // 2. 即時更新母片（主畫布）的虛線框座標！
+      const mainBoxElem = document.getElementById(`grid-box-${currentEditIndex}`);
+      if (mainBoxElem) {
+        updateBoxStyle(mainBoxElem, singleCropBox);
+      } else {
+        renderMainGridOverlay(); // 防護性繪製
       }
       
       updatePreview();
