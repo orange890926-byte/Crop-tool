@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CropAlpha 網格裁切與單圖重新裁切工具</title>
+  <title>CropAlpha 自由網格與單圖精確裁切工具</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -409,14 +409,14 @@
 
       <div class="setting-row">
         <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-          <span>背景色去背：</span>
+          <span>全域背景色去背：</span>
           <div>
             背景顏色：<input type="color" id="bgColor" value="#ffffff" onchange="reCalculateAllStickers()">
           </div>
         </div>
         
         <div class="slider-container">
-          <span>去背容差 (Tolerance)：</span>
+          <span>全域去背容差 (Tolerance)：</span>
           <input type="range" id="tolerance" min="1" max="100" value="20" oninput="document.getElementById('tolValue').innerText = this.value; reCalculateAllStickers();">
           <span id="tolValue" style="min-width:25px; text-align:right; font-weight:bold; color:#a78bfa;">20</span>
         </div>
@@ -436,8 +436,9 @@
       <button class="btn btn-auto" onclick="generateGridOverlay()">↺ 重設初始網格</button>
       
       <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
-        💡 <b>順暢提示：</b>拖拉網格框不會卡頓！調整好框的位置與大小後，點擊上方綠色<b>「重新生成」</b>按鈕即可更新全部貼圖。<br>
-        若要調整單一張，直接按下方預覽圖片上的<b>「✂ 重新裁切」</b>最方便！
+        💡 <b>提示：</b><br>
+        1. 調整全域容差會更新全部圖片。<br>
+        2. 點擊單圖的 <b>「🪄 修邊」</b>，即可<b>單獨調整該張圖的去背容差</b>與修邊細節！
       </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
@@ -492,16 +493,25 @@
     </div>
   </div>
 
-  <!-- Modal 2: 修邊與位移視窗 -->
+  <!-- Modal 2: 單圖精細編輯視窗 (包含專屬去背容差) -->
   <div class="modal-overlay" id="editModal">
     <div class="modal-content" style="max-width:480px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="color:#a78bfa;">🛠 單張圖案精細編輯</h3>
-        <span style="font-size:12px; color:#9ca3af;">(橡皮擦塗抹修邊)</span>
+        <h3 style="color:#a78bfa;">🛠 單張圖案精細編輯 (No.<span id="editTargetIdx"></span>)</h3>
+        <span style="font-size:12px; color:#9ca3af;">(容差微調與橡皮擦修邊)</span>
       </div>
 
       <div class="modal-preview">
         <canvas id="modalCanvas"></canvas>
+      </div>
+
+      <div class="tool-group">
+        <span class="tool-title">🎯 單張去背容差 (Tolerance) 微調</span>
+        <div class="slider-container">
+          <span>容差強度：</span>
+          <input type="range" id="singleToleranceSlider" min="1" max="100" value="20" oninput="updateModalRender()">
+          <span id="singleTolVal" style="min-width:35px; text-align:right; font-weight:bold; color:#a78bfa;">20</span>
+        </div>
       </div>
 
       <div class="tool-group">
@@ -560,7 +570,6 @@
     let modalEraserCanvas = null;
     let isErasing = false;
 
-    // 單圖重新裁切 Box 數據
     let singleCropBox = { x: 0, y: 0, w: 100, h: 100 };
 
     const mainCanvas = document.getElementById('mainCanvas');
@@ -647,7 +656,6 @@
       ctx.drawImage(currentImage, 0, 0);
     }
 
-    /* ⚡ 建立輕量化互動網格 (不即時計算圖片以保證流暢) */
     function generateGridOverlay() {
       if (!currentImage) return;
       gridOverlay.innerHTML = '';
@@ -753,19 +761,18 @@
       boxDiv.style.height = `${box.h}px`;
     }
 
-    /* 一鍵更新全圖案 */
     function processAllGridBoxes() {
       if (!currentImage) return;
       savedStickers = [];
+      const globalTol = parseInt(document.getElementById('tolerance').value);
       gridBoxesData.forEach((box, idx) => {
-        savedStickers[idx] = cropAndProcessBox(box);
+        savedStickers[idx] = cropAndProcessBox(box, globalTol);
       });
       updatePreview();
     }
 
-    function cropAndProcessBox(box) {
+    function cropAndProcessBox(box, toleranceVal) {
       const hex = document.getElementById('bgColor').value;
-      const toleranceVal = parseInt(document.getElementById('tolerance').value);
 
       const rawCropCvs = document.createElement('canvas');
       rawCropCvs.width = Math.max(1, box.w);
@@ -784,6 +791,7 @@
 
       return {
         boxData: { ...box },
+        tolerance: toleranceVal,
         rawCanvas: rawCropCvs,
         finalCanvas: finalStickerCvs
       };
@@ -919,7 +927,7 @@
       }
     }
 
-    /* ✂ 🎯 單圖重新裁切功能核心 (Single Recrop Modal) */
+    /* ✂ 單圖重新裁切 Modal */
     const recropModal = document.getElementById('recropModal');
     const recropBgCanvas = document.getElementById('recropBgCanvas');
     const recropBox = document.getElementById('recropBox');
@@ -934,7 +942,6 @@
       const rCtx = recropBgCanvas.getContext('2d');
       rCtx.drawImage(currentImage, 0, 0);
 
-      // 如果有之前的 Box 位置就讀取，否則預設畫布中央
       if (savedStickers[idx] && savedStickers[idx].boxData) {
         singleCropBox = { ...savedStickers[idx].boxData };
       } else {
@@ -1005,10 +1012,9 @@
     function applySingleRecrop() {
       if (currentEditIndex === null) return;
       
-      // 依據新調整的框重新生成該張貼圖
-      savedStickers[currentEditIndex] = cropAndProcessBox(singleCropBox);
+      const currentTol = savedStickers[currentEditIndex] ? savedStickers[currentEditIndex].tolerance : parseInt(document.getElementById('tolerance').value);
+      savedStickers[currentEditIndex] = cropAndProcessBox(singleCropBox, currentTol);
 
-      // 如果網格層有對應的 DOM 框，同步變更其樣式與數據
       if (gridBoxesData[currentEditIndex]) {
         gridBoxesData[currentEditIndex] = { ...singleCropBox, id: currentEditIndex };
         const boxDom = document.getElementById(`grid-box-${currentEditIndex}`);
@@ -1024,12 +1030,13 @@
       currentEditIndex = null;
     }
 
-    /* 🧹 修邊 Modal 邏輯 */
+    /* 🧹 單圖精細編輯 Modal (含專屬容差) */
     const modalCanvas = document.getElementById('modalCanvas');
     const mCtx = modalCanvas.getContext('2d');
 
     function openEditModal(idx) {
       currentEditIndex = idx;
+      document.getElementById('editTargetIdx').innerText = String(idx + 1).padStart(3, '0');
       document.getElementById('editModal').style.display = 'flex';
 
       modalCanvas.width = targetWidth;
@@ -1039,6 +1046,11 @@
       modalEraserCanvas.width = targetWidth;
       modalEraserCanvas.height = targetHeight;
 
+      const currentItem = savedStickers[idx];
+      const initialTol = currentItem ? (currentItem.tolerance || document.getElementById('tolerance').value) : 20;
+
+      document.getElementById('singleToleranceSlider').value = initialTol;
+      document.getElementById('singleTolVal').innerText = initialTol;
       document.getElementById('scaleSlider').value = 100;
       document.getElementById('offsetXSlider').value = 0;
       document.getElementById('offsetYSlider').value = 0;
@@ -1053,8 +1065,9 @@
       const offsetX = parseInt(document.getElementById('offsetXSlider').value);
       const offsetY = parseInt(document.getElementById('offsetYSlider').value);
       const hex = document.getElementById('bgColor').value;
-      const tol = parseInt(document.getElementById('tolerance').value);
+      const tol = parseInt(document.getElementById('singleToleranceSlider').value);
 
+      document.getElementById('singleTolVal').innerText = tol;
       document.getElementById('scaleVal').innerText = scale + '%';
       document.getElementById('offsetXVal').innerText = offsetX;
       document.getElementById('offsetYVal').innerText = offsetY;
@@ -1125,7 +1138,11 @@
       newFinalCvs.height = targetHeight;
       newFinalCvs.getContext('2d').drawImage(modalCanvas, 0, 0);
 
+      const newTol = parseInt(document.getElementById('singleToleranceSlider').value);
+
       savedStickers[currentEditIndex].finalCanvas = newFinalCvs;
+      savedStickers[currentEditIndex].tolerance = newTol;
+
       updatePreview();
       closeModal();
     }
