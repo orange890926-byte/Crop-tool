@@ -58,24 +58,31 @@
       gap: 12px;
     }
 
-    /* 畫布與互動層 */
+    /* 畫布與互動層 (針對捲動與邊界控制點優化) */
     .canvas-wrapper {
       position: relative;
       background: #000;
       border-radius: 6px;
       overflow: auto;
-      max-height: 600px;
+      padding: 20px; /* 留出充分空間給頂部/邊界的控制點 */
+      max-height: 75vh;
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start; /* 靠上對齊，方便捲動至最頂端 */
       border: 2px dashed #374151;
       user-select: none;
     }
     #canvasContainer {
       position: relative;
       display: inline-block;
+      max-width: 100%;
     }
-    #mainCanvas { cursor: crosshair; display: block; }
+    #mainCanvas {
+      cursor: crosshair;
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
     #gridOverlay {
       position: absolute;
       top: 0;
@@ -114,21 +121,21 @@
     /* 八方位拖拉控制點 (Handles) */
     .resize-handle {
       position: absolute;
-      width: 8px;
-      height: 8px;
+      width: 10px;
+      height: 10px;
       background-color: #ffffff;
       border: 1px solid #8b5cf6;
       border-radius: 2px;
       z-index: 3;
     }
-    .handle-nw { top: -4px; left: -4px; cursor: nwse-resize; }
-    .handle-ne { top: -4px; right: -4px; cursor: nesw-resize; }
-    .handle-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
-    .handle-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
-    .handle-n { top: -4px; left: calc(50% - 4px); cursor: ns-resize; }
-    .handle-s { bottom: -4px; left: calc(50% - 4px); cursor: ns-resize; }
-    .handle-w { top: calc(50% - 4px); left: -4px; cursor: ew-resize; }
-    .handle-e { top: calc(50% - 4px); right: -4px; cursor: ew-resize; }
+    .handle-nw { top: -5px; left: -5px; cursor: nwse-resize; }
+    .handle-ne { top: -5px; right: -5px; cursor: nesw-resize; }
+    .handle-sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+    .handle-se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+    .handle-n { top: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+    .handle-s { bottom: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+    .handle-w { top: calc(50% - 5px); left: -5px; cursor: ew-resize; }
+    .handle-e { top: calc(50% - 5px); right: -5px; cursor: ew-resize; }
 
     .btn {
       width: 100%;
@@ -337,6 +344,7 @@
       background: #000;
       border: 1px solid #4b5563;
       max-height: 500px;
+      padding: 15px;
       overflow: auto;
       display: flex;
       justify-content: center;
@@ -447,7 +455,7 @@
           <canvas id="mainCanvas"></canvas>
           <div id="gridOverlay"></div>
         </div>
-        <p id="placeholderText" style="color:#6b7280; position:absolute;">拖曳圖片至此，或直接按 Ctrl+V 貼上圖片</p>
+        <p id="placeholderText" style="color:#6b7280; position:absolute; top: 50%;">拖曳圖片至此，或直接按 Ctrl+V 貼上圖片</p>
       </div>
     </div>
 
@@ -458,7 +466,7 @@
       <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
         💡 <b>提示：</b><br>
         1. 下方預覽區的圖片，可直接<b>「拖拉挪動」</b>以改變輸出順序！<br>
-        2. 點擊單圖的 <b>「🪄 修邊」</b>，可獨立調整容差與手動橡皮擦修邊。
+        2. 已加入<b> Alpha 1px 邊緣縮減技術</b>，有效排除白邊殘色而不掉漆。
       </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
@@ -591,7 +599,7 @@
     let isErasing = false;
 
     let singleCropBox = { x: 0, y: 0, w: 100, h: 100 };
-    let draggedIndex = null; // 記錄正在被拖拉的貼圖索引
+    let draggedIndex = null;
 
     const mainCanvas = document.getElementById('mainCanvas');
     const ctx = mainCanvas.getContext('2d');
@@ -845,6 +853,7 @@
       processAllGridBoxes();
     }
 
+    /* 🔥 高級去背演算法：結合顏色容差 + Alpha 邊緣 1px 縮減 (解決半透明殘邊) */
     function removeBg(cCtx, w, h, hex, toleranceVal) {
       const imgData = cCtx.getImageData(0, 0, w, h);
       const data = imgData.data;
@@ -854,6 +863,7 @@
       const targetG = parseInt(hex.slice(3, 5), 16);
       const targetB = parseInt(hex.slice(5, 7), 16);
 
+      // 第一階段：基礎容差去背
       for (let i = 0; i < data.length; i += 4) {
         const dist = Math.sqrt(
           Math.pow(data[i] - targetR, 2) +
@@ -862,6 +872,30 @@
         );
         if (dist <= tol) data[i + 3] = 0;
       }
+
+      // 第二階段： Alpha 通道邊緣 1px 內縮，解決邊緣抗鋸齒殘留背景色問題
+      const alphaCopy = new Uint8ClampedArray(w * h);
+      for (let i = 0; i < data.length; i += 4) {
+        alphaCopy[i / 4] = data[i + 3];
+      }
+
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = y * w + x;
+          if (alphaCopy[idx] > 0) {
+            const hasTransparentNeighbor = 
+              alphaCopy[idx - 1] === 0 || 
+              alphaCopy[idx + 1] === 0 || 
+              alphaCopy[idx - w] === 0 || 
+              alphaCopy[idx + w] === 0;
+
+            if (hasTransparentNeighbor) {
+              data[idx * 4 + 3] = 0; // 削掉最外層 1px 混合邊緣
+            }
+          }
+        }
+      }
+
       cCtx.putImageData(imgData, 0, 0);
     }
 
@@ -905,7 +939,7 @@
       return tabCvs;
     }
 
-    /* 🔄 更新預覽區 (包含拖拉排序事件設定) */
+    /* 🔄 更新預覽區 (包含拖拉排序) */
     function updatePreview() {
       stickerGrid.innerHTML = '';
       savedCountEl.innerText = savedStickers.filter(Boolean).length;
@@ -915,7 +949,7 @@
 
         const stickerDiv = document.createElement('div');
         stickerDiv.className = 'sticker-item';
-        stickerDiv.draggable = true; // 啟用 HTML5 拖拉
+        stickerDiv.draggable = true;
         stickerDiv.dataset.index = idx;
 
         const img = document.createElement('img');
@@ -951,7 +985,6 @@
         stickerDiv.appendChild(actionsDiv);
         stickerDiv.appendChild(delBtn);
 
-        // 綁定拖拉事件 (Drag and Drop Events)
         stickerDiv.addEventListener('dragstart', handleDragStart);
         stickerDiv.addEventListener('dragover', handleDragOver);
         stickerDiv.addEventListener('dragenter', handleDragEnter);
@@ -963,7 +996,7 @@
       });
     }
 
-    /* 🖐 拖拉排序邏輯處理 */
+    /* 🖐 拖拉排序邏輯 */
     function handleDragStart(e) {
       draggedIndex = parseInt(this.dataset.index);
       this.classList.add('dragging');
@@ -992,11 +1025,9 @@
       const targetIndex = parseInt(this.dataset.index);
 
       if (draggedIndex !== null && draggedIndex !== targetIndex) {
-        // 對 savedStickers 進行陣列元素位移
         const movedItem = savedStickers.splice(draggedIndex, 1)[0];
         savedStickers.splice(targetIndex, 0, movedItem);
 
-        // 如果對應網格資料存在，也一併同步順序
         if (gridBoxesData.length === savedStickers.length) {
           const movedBox = gridBoxesData.splice(draggedIndex, 1)[0];
           gridBoxesData.splice(targetIndex, 0, movedBox);
