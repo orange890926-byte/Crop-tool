@@ -89,7 +89,7 @@
     }
     .btn:hover { opacity: 0.9; }
     .btn-auto { background: #8b5cf6; color: white; font-size: 15px; }
-    .btn-manual { background: #4b5563; color: #white; }
+    .btn-manual { background: #4b5563; color: white; }
     .btn-upload { background: #3b82f6; color: white; }
     .btn-download { background: #06b6d4; color: white; font-size: 16px; padding: 12px; }
     .btn-reset { background: #ef4444; color: white; }
@@ -104,6 +104,24 @@
       padding: 8px 12px;
       border-radius: 6px;
       font-size: 13px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .custom-grid-inputs {
+      display: none;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .custom-grid-inputs input {
+      width: 45px;
+      background: #374151;
+      color: #fff;
+      border: 1px solid #4b5563;
+      padding: 2px 4px;
+      border-radius: 4px;
+      text-align: center;
     }
 
     /* 下方預覽區 */
@@ -131,7 +149,6 @@
       padding: 10px;
       background: #121216;
       border-radius: 6px;
-      /* 透明棋盤底 */
       background-image: linear-gradient(45deg, #1c1c22 25%, transparent 25%), 
                         linear-gradient(-45deg, #1c1c22 25%, transparent 25%), 
                         linear-gradient(45deg, transparent 75%, #1c1c22 75%), 
@@ -175,7 +192,6 @@
       text-align: center;
     }
 
-    /* 拖曳框選指示 */
     .selection-box {
       position: absolute;
       border: 2px dashed #06b6d4;
@@ -196,10 +212,19 @@
     <div class="editor-section">
       <div class="setting-row">
         <span>偵測模式：</span>
-        <select id="gridMode" style="background:#374151; color:#fff; border:none; padding:4px; border-radius:4px;">
-          <option value="16">4 x 4 (16張)</option>
-          <option value="40">5 x 8 (40張)</option>
+        <select id="gridMode" onchange="toggleGridMode()" style="background:#374151; color:#fff; border:none; padding:4px; border-radius:4px;">
+          <option value="4x4">4 x 4 (16張)</option>
+          <option value="5x8">5 x 8 (40張)</option>
+          <option value="custom">⚙ 自訂網格</option>
         </select>
+
+        <!-- 自訂網格輸入區塊 -->
+        <div class="custom-grid-inputs" id="customGridInputs">
+          <input type="number" id="customCols" value="6" min="1" max="20" title="欄數 (Cols)">
+          <span>x</span>
+          <input type="number" id="customRows" value="3" min="1" max="20" title="列數 (Rows)">
+          <span id="customTotalTag" style="font-size: 11px; color: #a78bfa;">(18張)</span>
+        </div>
       </div>
 
       <div class="setting-row">
@@ -242,7 +267,7 @@
   </div>
 
   <script>
-    let savedStickers = []; // 儲存最多 40 張 Canvas 圖片
+    let savedStickers = [];
     let currentImage = null;
     let isDrawing = false;
     let startX = 0, startY = 0, endX = 0, endY = 0;
@@ -253,6 +278,30 @@
     const placeholderText = document.getElementById('placeholderText');
     const stickerGrid = document.getElementById('stickerGrid');
     const savedCountEl = document.getElementById('savedCount');
+
+    // 監聽自訂網格輸入變更
+    const customColsInput = document.getElementById('customCols');
+    const customRowsInput = document.getElementById('customRows');
+    const customTotalTag = document.getElementById('customTotalTag');
+
+    function updateCustomTotal() {
+      const c = parseInt(customColsInput.value) || 1;
+      const r = parseInt(customRowsInput.value) || 1;
+      customTotalTag.innerText = `(${c * r}張)`;
+    }
+    customColsInput.addEventListener('input', updateCustomTotal);
+    customRowsInput.addEventListener('input', updateCustomTotal);
+
+    function toggleGridMode() {
+      const mode = document.getElementById('gridMode').value;
+      const customInputs = document.getElementById('customGridInputs');
+      if (mode === 'custom') {
+        customInputs.style.display = 'flex';
+        updateCustomTotal();
+      } else {
+        customInputs.style.display = 'none';
+      }
+    }
 
     // 初始化貼上 (Ctrl+V) 與 拖曳讀圖
     window.addEventListener('paste', e => {
@@ -295,7 +344,7 @@
       ctx.drawImage(currentImage, 0, 0);
     }
 
-    // --- 手動框選邏輯 (Mouse/Touch) ---
+    // --- 手動框選邏輯 ---
     let selectionBox = null;
 
     mainCanvas.addEventListener('mousedown', startSelect);
@@ -328,7 +377,6 @@
       endX = (e.clientX - rect.left) * scaleX;
       endY = (e.clientY - rect.top) * scaleY;
 
-      // 更新視覺框選
       const left = Math.min(startX, endX) / scaleX;
       const top = Math.min(startY, endY) / scaleY;
       const width = Math.abs(endX - startX) / scaleX;
@@ -348,9 +396,18 @@
     function autoDetectGrid() {
       if (!currentImage) return alert('請先上傳圖片！');
 
-      const mode = parseInt(document.getElementById('gridMode').value);
-      const cols = mode === 16 ? 4 : 5;
-      const rows = mode === 16 ? 4 : 8;
+      const mode = document.getElementById('gridMode').value;
+      let cols = 4;
+      let rows = 4;
+
+      if (mode === '4x4') {
+        cols = 4; rows = 4;
+      } else if (mode === '5x8') {
+        cols = 5; rows = 8;
+      } else if (mode === 'custom') {
+        cols = parseInt(customColsInput.value) || 1;
+        rows = parseInt(customRowsInput.value) || 1;
+      }
 
       const cellW = currentImage.width / cols;
       const cellH = currentImage.height / rows;
@@ -398,14 +455,13 @@
 
       addSticker(cropCvs);
 
-      // 清除選擇框
       if (selectionBox) selectionBox.remove();
       selectionBox = null;
       document.getElementById('manualCropBtn').disabled = true;
       scrollToPreview();
     }
 
-    // --- 綠幕/背景去背核心 ---
+    // --- 去背邏輯 ---
     function removeBg(cCtx, w, h) {
       const imgData = cCtx.getImageData(0, 0, w, h);
       const data = imgData.data;
@@ -422,16 +478,14 @@
           Math.pow(data[i+1] - targetG, 2) +
           Math.pow(data[i+2] - targetB, 2)
         );
-        if (dist <= tol) data[i + 3] = 0; // 設定 Alpha 透明
+        if (dist <= tol) data[i + 3] = 0;
       }
       cCtx.putImageData(imgData, 0, 0);
     }
 
-    // --- 累積加入貼圖（上限 40 張 & 72 DPI 確保）---
+    // --- 貼圖管理與下載 ---
     function addSticker(canvas) {
       if (savedStickers.length >= 40) return;
-
-      // 確保解析度符合高畫質（例如強制標準尺寸 370x320 比例，此處保持原生 Canvas Pixels 輸出）
       savedStickers.push(canvas);
       updatePreview();
     }
@@ -472,7 +526,6 @@
       stickerGrid.scrollIntoView({ behavior: 'smooth' });
     }
 
-    // --- 打包 ZIP 下載 (001~040) ---
     function downloadZip() {
       if (savedStickers.length === 0) return alert('預覽區內沒有圖片可以下載！');
 
@@ -493,7 +546,6 @@
       });
     }
 
-    // --- 全部重來 ---
     function resetAll() {
       if (confirm('確定要清空所有內容與已裁切的貼圖嗎？')) {
         savedStickers = [];
