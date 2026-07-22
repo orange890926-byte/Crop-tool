@@ -223,12 +223,8 @@
       background-size: 12px 12px;
       background-color: #121216;
     }
-    .bg-dark {
-      background: #121216 !important;
-    }
-    .bg-white {
-      background: #ffffff !important;
-    }
+    .bg-dark { background: #121216 !important; }
+    .bg-white { background: #ffffff !important; }
 
     .sticker-grid {
       display: grid;
@@ -241,6 +237,7 @@
       transition: background 0.3s;
     }
 
+    /* 拖拉排序卡片樣式 */
     .sticker-item {
       position: relative;
       background: rgba(255,255,255,0.05);
@@ -251,7 +248,12 @@
       align-items: center;
       justify-content: center;
       transition: transform 0.15s, border-color 0.15s;
+      cursor: grab;
+      user-select: none;
     }
+    .sticker-item:active { cursor: grabbing; }
+    .sticker-item.dragging { opacity: 0.4; border-color: #8b5cf6; }
+    .sticker-item.drag-over { border: 2px dashed #a78bfa; background: rgba(167, 139, 250, 0.2); }
     .sticker-item img { max-width: 80%; max-height: 80%; object-fit: contain; pointer-events: none; }
     
     .sticker-item .idx-tag {
@@ -330,7 +332,6 @@
       border: 1px solid #374151;
     }
 
-    /* 單獨重新裁切 Modal 畫布 */
     .crop-modal-wrapper {
       position: relative;
       background: #000;
@@ -346,7 +347,6 @@
       display: inline-block;
     }
 
-    /* 修邊 Modal 預覽 */
     .modal-preview {
       width: 220px;
       height: 220px;
@@ -388,7 +388,6 @@
     <h1>田 CropAlpha 自由網格與單圖精確裁切工具</h1>
     <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
       
-      <!-- 👁 檢視背景顏色切換 -->
       <div style="display:flex; align-items:center; gap:6px;">
         <span style="font-size:13px; font-weight:bold; color:#a78bfa;">👁 檢視背景：</span>
         <select id="viewBgMode" onchange="changeViewBgMode()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold; cursor:pointer;">
@@ -458,8 +457,8 @@
       
       <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
         💡 <b>提示：</b><br>
-        1. 調整右上角 <b>「👁 檢視背景」</b> 可快速檢查去背是否有殘留瑕疵。<br>
-        2. 點擊單圖的 <b>「🪄 修邊」</b>，可<b>獨立調整容差與手動橡皮擦修邊</b>！
+        1. 下方預覽區的圖片，可直接<b>「拖拉挪動」</b>以改變輸出順序！<br>
+        2. 點擊單圖的 <b>「🪄 修邊」</b>，可獨立調整容差與手動橡皮擦修邊。
       </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
@@ -475,10 +474,9 @@
 
     <div class="preview-section">
       <div class="preview-header">
-        <h3>已裁切圖案預覽</h3>
+        <h3>已裁切圖案預覽 (可直接按住拖拉調整順序)</h3>
         <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有圖案</button>
       </div>
-      <!-- 預覽區格子預設載入 checkerboard 類別 -->
       <div class="sticker-grid bg-checkerboard" id="stickerGrid"></div>
     </div>
   </div>
@@ -515,7 +513,7 @@
     </div>
   </div>
 
-  <!-- Modal 2: 單圖精細編輯視窗 (包含專屬去背容差) -->
+  <!-- Modal 2: 單圖精細編輯視窗 -->
   <div class="modal-overlay" id="editModal">
     <div class="modal-content" style="max-width:480px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -523,7 +521,6 @@
         <span style="font-size:12px; color:#9ca3af;">(容差微調與橡皮擦修邊)</span>
       </div>
 
-      <!-- 修邊視窗預覽框，連動背景色 -->
       <div class="modal-preview bg-checkerboard" id="modalPreviewBox">
         <canvas id="modalCanvas"></canvas>
       </div>
@@ -594,6 +591,7 @@
     let isErasing = false;
 
     let singleCropBox = { x: 0, y: 0, w: 100, h: 100 };
+    let draggedIndex = null; // 記錄正在被拖拉的貼圖索引
 
     const mainCanvas = document.getElementById('mainCanvas');
     const ctx = mainCanvas.getContext('2d');
@@ -607,7 +605,6 @@
     const customRowsInput = document.getElementById('customRows');
     const customTotalTag = document.getElementById('customTotalTag');
 
-    // 切換預覽背景顏色 (棋盤格/深色/白底)
     function changeViewBgMode() {
       const mode = document.getElementById('viewBgMode').value;
       const bgClasses = ['bg-checkerboard', 'bg-dark', 'bg-white'];
@@ -908,6 +905,7 @@
       return tabCvs;
     }
 
+    /* 🔄 更新預覽區 (包含拖拉排序事件設定) */
     function updatePreview() {
       stickerGrid.innerHTML = '';
       savedCountEl.innerText = savedStickers.filter(Boolean).length;
@@ -917,6 +915,8 @@
 
         const stickerDiv = document.createElement('div');
         stickerDiv.className = 'sticker-item';
+        stickerDiv.draggable = true; // 啟用 HTML5 拖拉
+        stickerDiv.dataset.index = idx;
 
         const img = document.createElement('img');
         img.src = item.finalCanvas.toDataURL('image/png');
@@ -931,12 +931,12 @@
         const recropBtn = document.createElement('button');
         recropBtn.className = 'btn-recrop';
         recropBtn.innerText = '✂ 重裁';
-        recropBtn.onclick = () => openRecropModal(idx);
+        recropBtn.onclick = (e) => { e.stopPropagation(); openRecropModal(idx); };
 
         const editBtn = document.createElement('button');
         editBtn.className = 'btn-edit-single';
         editBtn.innerText = '🪄 修邊';
-        editBtn.onclick = () => openEditModal(idx);
+        editBtn.onclick = (e) => { e.stopPropagation(); openEditModal(idx); };
 
         actionsDiv.appendChild(recropBtn);
         actionsDiv.appendChild(editBtn);
@@ -944,14 +944,75 @@
         const delBtn = document.createElement('button');
         delBtn.className = 'del-btn';
         delBtn.innerText = '✕';
-        delBtn.onclick = () => removeSticker(idx);
+        delBtn.onclick = (e) => { e.stopPropagation(); removeSticker(idx); };
 
         stickerDiv.appendChild(img);
         stickerDiv.appendChild(tag);
         stickerDiv.appendChild(actionsDiv);
         stickerDiv.appendChild(delBtn);
+
+        // 綁定拖拉事件 (Drag and Drop Events)
+        stickerDiv.addEventListener('dragstart', handleDragStart);
+        stickerDiv.addEventListener('dragover', handleDragOver);
+        stickerDiv.addEventListener('dragenter', handleDragEnter);
+        stickerDiv.addEventListener('dragleave', handleDragLeave);
+        stickerDiv.addEventListener('drop', handleDrop);
+        stickerDiv.addEventListener('dragend', handleDragEnd);
+
         stickerGrid.appendChild(stickerDiv);
       });
+    }
+
+    /* 🖐 拖拉排序邏輯處理 */
+    function handleDragStart(e) {
+      draggedIndex = parseInt(this.dataset.index);
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function handleDragOver(e) {
+      if (e.preventDefault) e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      return false;
+    }
+
+    function handleDragEnter() {
+      if (parseInt(this.dataset.index) !== draggedIndex) {
+        this.classList.add('drag-over');
+      }
+    }
+
+    function handleDragLeave() {
+      this.classList.remove('drag-over');
+    }
+
+    function handleDrop(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      const targetIndex = parseInt(this.dataset.index);
+
+      if (draggedIndex !== null && draggedIndex !== targetIndex) {
+        // 對 savedStickers 進行陣列元素位移
+        const movedItem = savedStickers.splice(draggedIndex, 1)[0];
+        savedStickers.splice(targetIndex, 0, movedItem);
+
+        // 如果對應網格資料存在，也一併同步順序
+        if (gridBoxesData.length === savedStickers.length) {
+          const movedBox = gridBoxesData.splice(draggedIndex, 1)[0];
+          gridBoxesData.splice(targetIndex, 0, movedBox);
+        }
+
+        updatePreview();
+      }
+      return false;
+    }
+
+    function handleDragEnd() {
+      this.classList.remove('dragging');
+      document.querySelectorAll('.sticker-item').forEach(item => {
+        item.classList.remove('drag-over');
+      });
+      draggedIndex = null;
     }
 
     function removeSticker(idx) {
@@ -1064,7 +1125,7 @@
       currentEditIndex = null;
     }
 
-    /* 🪄 單圖精細編輯 Modal (修邊與微調) 功能組 */
+    /* 🪄 單圖精細編輯 Modal 功能組 */
     function openEditModal(idx) {
       currentEditIndex = idx;
       const sticker = savedStickers[idx];
@@ -1078,7 +1139,6 @@
 
       resetTransform();
 
-      // 初始化橡皮擦透明繪圖層
       modalEraserCanvas = document.createElement('canvas');
       modalEraserCanvas.width = sticker.rawCanvas.width;
       modalEraserCanvas.height = sticker.rawCanvas.height;
@@ -1148,7 +1208,6 @@
       const singleTol = parseInt(document.getElementById('singleToleranceSlider').value);
       const hex = document.getElementById('bgColor').value;
 
-      // 複製 rawCanvas 重新去背
       const processCvs = document.createElement('canvas');
       processCvs.width = sticker.rawCanvas.width;
       processCvs.height = sticker.rawCanvas.height;
@@ -1157,21 +1216,18 @@
 
       removeBg(pCtx, processCvs.width, processCvs.height, hex, singleTol);
 
-      // 套用橡皮擦遮罩 (Destination-Out)
       if (modalEraserCanvas) {
         pCtx.globalCompositeOperation = 'destination-out';
         pCtx.drawImage(modalEraserCanvas, 0, 0);
         pCtx.globalCompositeOperation = 'source-over';
       }
 
-      // 計算縮放與位移
       const scalePct = parseInt(document.getElementById('scaleSlider').value);
       const offX = parseInt(document.getElementById('offsetXSlider').value);
       const offY = parseInt(document.getElementById('offsetYSlider').value);
 
       const renderCvs = createTargetCanvas(processCvs, scalePct, offX, offY);
 
-      // 渲染至 Modal 預覽 Canvas
       const modalCanvas = document.getElementById('modalCanvas');
       modalCanvas.width = targetWidth;
       modalCanvas.height = targetHeight;
@@ -1220,7 +1276,6 @@
         zip.file(fileName, base64Data, { base64: true });
       });
 
-      // 表情貼模式下自動附加 tab.png (選取第一張貼圖等比例縮放為 96x74)
       if (exportType === 'emoji' && activeStickers.length > 0) {
         const tabCanvas = createTabCanvas(activeStickers[0].finalCanvas);
         const tabDataUrl = tabCanvas.toDataURL('image/png');
