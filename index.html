@@ -58,17 +58,17 @@
       gap: 12px;
     }
 
-    /* 畫布與互動層 (針對捲動與邊界控制點優化) */
+    /* 主畫布與互動層 (對邊界控制點優化) */
     .canvas-wrapper {
       position: relative;
       background: #000;
       border-radius: 6px;
       overflow: auto;
-      padding: 20px; /* 留出充分空間給頂部/邊界的控制點 */
+      padding: 25px; /* 留出充分空間給頂部/邊界的控制點 */
       max-height: 75vh;
       display: flex;
       justify-content: center;
-      align-items: flex-start; /* 靠上對齊，方便捲動至最頂端 */
+      align-items: flex-start; /* 靠上對齊 */
       border: 2px dashed #374151;
       user-select: none;
     }
@@ -92,7 +92,7 @@
       pointer-events: none;
     }
 
-    /* 可縮放/位移的網格框樣式 */
+    /* 網格框樣式 */
     .grid-box {
       position: absolute;
       border: 2px dashed #a78bfa;
@@ -329,7 +329,7 @@
       background: #1e1e24;
       padding: 20px;
       border-radius: 8px;
-      max-width: 800px;
+      max-width: 900px;
       width: 95%;
       max-height: 90vh;
       overflow-y: auto;
@@ -339,16 +339,18 @@
       border: 1px solid #374151;
     }
 
+    /* 單圖重新裁切專用 Wrapper：解決頂部切頭 + 支持滾動聚焦 */
     .crop-modal-wrapper {
       position: relative;
       background: #000;
       border: 1px solid #4b5563;
-      max-height: 500px;
-      padding: 15px;
+      max-height: 60vh;
+      padding: 25px; /* 給予適當內邊距，防控制點被壓住 */
       overflow: auto;
       display: flex;
-      justify-content: center;
-      align-items: center;
+      justify-content: flex-start; /* 靠左上以精確計算聚焦 Scroll */
+      align-items: flex-start;
+      border-radius: 6px;
     }
     #recropCanvasContainer {
       position: relative;
@@ -466,7 +468,8 @@
       <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
         💡 <b>提示：</b><br>
         1. 下方預覽區的圖片，可直接<b>「拖拉挪動」</b>以改變輸出順序！<br>
-        2. 已加入<b> Alpha 1px 邊緣縮減技術</b>，有效排除白邊殘色而不掉漆。
+        2. 已加入<b> Alpha 1px 邊緣縮減技術</b>，有效排除白邊殘色而不掉漆。<br>
+        3. 單圖重裁已支援<b>自動定位聚焦</b>。
       </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
@@ -491,13 +494,13 @@
 
   <!-- Modal 1: 單圖重新裁切視窗 -->
   <div class="modal-overlay" id="recropModal">
-    <div class="modal-content" style="max-width: 900px;">
+    <div class="modal-content">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <h3 style="color:#10b981;">✂ 單圖重新裁切 (No.<span id="recropTargetIdx"></span>)</h3>
         <span style="font-size:12px; color:#9ca3af;">拖曳框框以重新框選這張圖案的位置與大小</span>
       </div>
 
-      <div class="crop-modal-wrapper">
+      <div class="crop-modal-wrapper" id="cropModalWrapper">
         <div id="recropCanvasContainer">
           <canvas id="recropBgCanvas"></canvas>
           <div id="recropBox" class="grid-box" style="z-index: 10;">
@@ -853,7 +856,7 @@
       processAllGridBoxes();
     }
 
-    /* 🔥 高級去背演算法：結合顏色容差 + Alpha 邊緣 1px 縮減 (解決半透明殘邊) */
+    /* 🔥 高級去背演算法：雙階 Alpha 去殘色邊緣 */
     function removeBg(cCtx, w, h, hex, toleranceVal) {
       const imgData = cCtx.getImageData(0, 0, w, h);
       const data = imgData.data;
@@ -863,7 +866,6 @@
       const targetG = parseInt(hex.slice(3, 5), 16);
       const targetB = parseInt(hex.slice(5, 7), 16);
 
-      // 第一階段：基礎容差去背
       for (let i = 0; i < data.length; i += 4) {
         const dist = Math.sqrt(
           Math.pow(data[i] - targetR, 2) +
@@ -873,7 +875,6 @@
         if (dist <= tol) data[i + 3] = 0;
       }
 
-      // 第二階段： Alpha 通道邊緣 1px 內縮，解決邊緣抗鋸齒殘留背景色問題
       const alphaCopy = new Uint8ClampedArray(w * h);
       for (let i = 0; i < data.length; i += 4) {
         alphaCopy[i / 4] = data[i + 3];
@@ -890,7 +891,7 @@
               alphaCopy[idx + w] === 0;
 
             if (hasTransparentNeighbor) {
-              data[idx * 4 + 3] = 0; // 削掉最外層 1px 混合邊緣
+              data[idx * 4 + 3] = 0;
             }
           }
         }
@@ -939,7 +940,6 @@
       return tabCvs;
     }
 
-    /* 🔄 更新預覽區 (包含拖拉排序) */
     function updatePreview() {
       stickerGrid.innerHTML = '';
       savedCountEl.innerText = savedStickers.filter(Boolean).length;
@@ -996,7 +996,6 @@
       });
     }
 
-    /* 🖐 拖拉排序邏輯 */
     function handleDragStart(e) {
       draggedIndex = parseInt(this.dataset.index);
       this.classList.add('dragging');
@@ -1065,7 +1064,7 @@
       }
     }
 
-    /* ✂ 單圖重新裁切 Modal 功能組 */
+    /* ✂ 單圖重新裁切 Modal 功能組（已加入自動聚焦置中邏輯） */
     function openRecropModal(idx) {
       if (!currentImage) return;
       currentEditIndex = idx;
@@ -1084,7 +1083,17 @@
       updateBoxStyle(recropBox, singleCropBox);
       setupRecropBoxEvents(recropBox);
 
+      const modalWrapper = document.getElementById('cropModalWrapper');
       document.getElementById('recropModal').style.display = 'flex';
+
+      // 🎯 自動聚焦將該張圖片的框框捲動到 Modal 容器中央！
+      setTimeout(() => {
+        const centerX = singleCropBox.x + (singleCropBox.w / 2);
+        const centerY = singleCropBox.y + (singleCropBox.h / 2);
+
+        modalWrapper.scrollLeft = Math.max(0, centerX - (modalWrapper.clientWidth / 2));
+        modalWrapper.scrollTop = Math.max(0, centerY - (modalWrapper.clientHeight / 2));
+      }, 50);
     }
 
     function setupRecropBoxEvents(boxDiv) {
