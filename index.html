@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CropAlpha 貼圖/表情貼進階編輯工具</title>
+  <title>CropAlpha 網格與邊界即時可調裁切工具</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -58,6 +58,7 @@
       gap: 12px;
     }
 
+    /* 畫布與互動層容器 */
     .canvas-wrapper {
       position: relative;
       background: #000;
@@ -70,7 +71,44 @@
       border: 2px dashed #374151;
       user-select: none;
     }
-    #mainCanvas { cursor: crosshair; display: block; max-width: 100%; }
+    #canvasContainer {
+      position: relative;
+      display: inline-block;
+    }
+    #mainCanvas { cursor: crosshair; display: block; }
+    #gridOverlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none; /* 內部 box 才有事件 */
+    }
+
+    /* 網格微調框樣式 */
+    .grid-box {
+      position: absolute;
+      border: 2px dashed #a78bfa;
+      background: rgba(167, 139, 250, 0.15);
+      pointer-events: auto;
+      box-sizing: border-box;
+      cursor: move;
+    }
+    .grid-box.selected {
+      border: 2px solid #06b6d4;
+      background: rgba(6, 182, 212, 0.25);
+    }
+    .grid-box .box-label {
+      position: absolute;
+      top: 0;
+      left: 0;
+      background: #8b5cf6;
+      color: #fff;
+      font-size: 10px;
+      font-weight: bold;
+      padding: 1px 4px;
+      pointer-events: none;
+    }
 
     .btn {
       width: 100%;
@@ -101,8 +139,6 @@
       cursor: pointer;
       font-weight: bold;
     }
-    .btn-clear-preview:hover { opacity: 0.9; }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .setting-row {
       display: flex;
@@ -121,7 +157,6 @@
       align-items: center;
       gap: 4px;
     }
-
     .custom-grid-inputs input {
       width: 45px;
       background: #374151;
@@ -139,7 +174,6 @@
       width: 100%;
       margin-top: 2px;
     }
-
     .slider-container input[type="range"] {
       flex: 1;
       accent-color: #8b5cf6;
@@ -188,12 +222,6 @@
       cursor: grab;
       transition: transform 0.15s, border-color 0.15s;
     }
-    .sticker-item:active { cursor: grabbing; }
-    .sticker-item.dragging {
-      opacity: 0.4;
-      border-color: #8b5cf6;
-      transform: scale(0.95);
-    }
     .sticker-item img { max-width: 85%; max-height: 85%; object-fit: contain; pointer-events: none; }
     
     .sticker-item .idx-tag {
@@ -239,13 +267,6 @@
       z-index: 2;
     }
 
-    .selection-box {
-      position: absolute;
-      border: 2px dashed #06b6d4;
-      background: rgba(6, 182, 212, 0.2);
-      pointer-events: none;
-    }
-
     /* Modal 視窗樣式 */
     .modal-overlay {
       position: fixed;
@@ -283,7 +304,6 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      position: relative;
     }
     #modalCanvas { cursor: crosshair; touch-action: none; max-width: 100%; max-height: 100%; object-fit: contain; }
 
@@ -296,8 +316,7 @@
       gap: 8px;
       font-size: 12px;
     }
-    .tool-title { color: #a78bfa; font-weight: bold; margin-bottom: 2px; }
-
+    .tool-title { color: #a78bfa; font-weight: bold; }
     .btn-small {
       padding: 4px 8px;
       font-size: 12px;
@@ -307,13 +326,7 @@
       border-radius: 4px;
       cursor: pointer;
     }
-    .btn-small:hover { background: #4b5563; }
-
-    .modal-actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 5px;
-    }
+    .modal-actions { display: flex; gap: 10px; margin-top: 5px; }
   </style>
 </head>
 <body>
@@ -341,37 +354,42 @@
         </select>
 
         <div class="custom-grid-inputs" id="customGridInputs">
-          <input type="number" id="customCols" value="5" min="1" max="20" title="欄數 (Cols)">
+          <input type="number" id="customCols" value="5" min="1" max="20">
           <span>x</span>
-          <input type="number" id="customRows" value="8" min="1" max="20" title="列數 (Rows)">
+          <input type="number" id="customRows" value="8" min="1" max="20">
           <span id="customTotalTag" style="font-size: 11px; color: #a78bfa;">(40張)</span>
         </div>
       </div>
 
       <div class="setting-row">
         <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-          <label><input type="checkbox" id="smartAutoTight" checked> 開啟「智慧緊縮邊界」（自動排除背景）</label>
+          <label><input type="checkbox" id="smartAutoTight" checked onchange="reCalculateGridAndStickers()"> 開開啟「智慧緊縮邊界」（自動貼合食物邊緣）</label>
           <div>
-            背景顏色：<input type="color" id="bgColor" value="#ffffff">
+            背景顏色：<input type="color" id="bgColor" value="#ffffff" onchange="reCalculateGridAndStickers()">
           </div>
         </div>
         
         <div class="slider-container">
           <span>去背容差 / 偵測靈敏度：</span>
-          <input type="range" id="tolerance" min="1" max="100" value="20" oninput="document.getElementById('tolValue').innerText = this.value">
+          <input type="range" id="tolerance" min="1" max="100" value="20" oninput="document.getElementById('tolValue').innerText = this.value; reCalculateGridAndStickers();">
           <span id="tolValue" style="min-width:25px; text-align:right; font-weight:bold; color:#a78bfa;">20</span>
         </div>
       </div>
 
-      <div class="canvas-wrapper" id="canvasWrapper">
-        <canvas id="mainCanvas"></canvas>
-        <p id="placeholderText" style="color:#6b7280;">拖曳圖片至此，或直接按 Ctrl+V 貼上圖片</p>
+      <div class="canvas-wrapper">
+        <div id="canvasContainer">
+          <canvas id="mainCanvas"></canvas>
+          <div id="gridOverlay"></div>
+        </div>
+        <p id="placeholderText" style="color:#6b7280; position:absolute;">拖曳圖片至此，或直接按 Ctrl+V 貼上圖片</p>
       </div>
     </div>
 
     <div class="control-section">
-      <button class="btn btn-auto" id="autoDetectBtn" onclick="runAutoDetect()">✦ 一鍵自動網格裁切</button>
-      <button class="btn btn-manual" id="manualCropBtn" onclick="cropManualSelection()" disabled>✂ 手動框選並加入</button>
+      <button class="btn btn-auto" onclick="generateGridOverlay()">✦ 產生/重設可拖拉網格</button>
+      <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
+        💡 <b>提示：</b>在上圖畫布中，你可以<b>點擊並拖曳邊界框</b>。調整後的框將會<b>即時替換</b>下方對應位置的貼圖！
+      </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
 
@@ -386,7 +404,7 @@
 
     <div class="preview-section">
       <div class="preview-header">
-        <h3>已裁切圖案預覽 (點擊 🪄 可進行獨立修邊/縮放)</h3>
+        <h3>已裁切圖案預覽 (即時同步)</h3>
         <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有圖案</button>
       </div>
       <div class="sticker-grid" id="stickerGrid"></div>
@@ -442,18 +460,6 @@
         </div>
       </div>
 
-      <div class="tool-group">
-        <span class="tool-title">🪄 去背參數</span>
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-          <span>顏色：<input type="color" id="modalBgColor" value="#ffffff" onchange="updateModalRender()"></span>
-        </div>
-        <div class="slider-container">
-          <span>容差：</span>
-          <input type="range" id="modalTolerance" min="1" max="100" value="20" oninput="document.getElementById('modalTolVal').innerText = this.value; updateModalRender();">
-          <span id="modalTolVal" style="min-width:35px; text-align:right; color:#a78bfa;">20</span>
-        </div>
-      </div>
-
       <div class="modal-actions">
         <button class="btn btn-auto" onclick="applyModalEdit()">確認套用</button>
         <button class="btn btn-manual" onclick="closeModal()">取消</button>
@@ -465,11 +471,9 @@
     let targetWidth = 180;
     let targetHeight = 180;
 
-    let savedStickers = [];
+    let savedStickers = []; // 存放所有貼圖物件
+    let gridBoxesData = []; // 存放畫布上的網格框資料 [{id, x, y, w, h}]
     let currentImage = null;
-    let isDrawing = false;
-    let startX = 0, startY = 0, endX = 0, endY = 0;
-    let draggedIndex = null;
     let currentEditIndex = null;
 
     let modalEraserCanvas = null;
@@ -477,7 +481,7 @@
 
     const mainCanvas = document.getElementById('mainCanvas');
     const ctx = mainCanvas.getContext('2d');
-    const canvasWrapper = document.getElementById('canvasWrapper');
+    const gridOverlay = document.getElementById('gridOverlay');
     const placeholderText = document.getElementById('placeholderText');
     const stickerGrid = document.getElementById('stickerGrid');
     const savedCountEl = document.getElementById('savedCount');
@@ -488,13 +492,8 @@
 
     function changeExportType() {
       const type = document.getElementById('exportType').value;
-      if (type === 'emoji') {
-        targetWidth = 180;
-        targetHeight = 180;
-      } else if (type === 'sticker') {
-        targetWidth = 370;
-        targetHeight = 320;
-      }
+      targetWidth = (type === 'emoji') ? 180 : 370;
+      targetHeight = (type === 'emoji') ? 180 : 320;
       
       savedStickers.forEach(item => {
         item.finalCanvas = createTargetCanvas(item.rawCanvas);
@@ -512,9 +511,9 @@
 
     function toggleGridMode() {
       const mode = document.getElementById('gridMode').value;
-      const customInputs = document.getElementById('customGridInputs');
-      customInputs.style.display = (mode === 'custom') ? 'flex' : 'none';
+      document.getElementById('customGridInputs').style.display = (mode === 'custom') ? 'flex' : 'none';
       if (mode === 'custom') updateCustomTotal();
+      if (currentImage) generateGridOverlay();
     }
 
     window.addEventListener('paste', e => {
@@ -522,12 +521,6 @@
       for (let item of items) {
         if (item.type.indexOf('image') !== -1) loadImage(item.getAsFile());
       }
-    });
-
-    canvasWrapper.addEventListener('dragover', e => e.preventDefault());
-    canvasWrapper.addEventListener('drop', e => {
-      e.preventDefault();
-      if (e.dataTransfer.files.length > 0) loadImage(e.dataTransfer.files[0]);
     });
 
     function handleFileSelect(e) {
@@ -543,52 +536,24 @@
           placeholderText.style.display = 'none';
           drawCanvas();
           detectAutoBgColor();
+          generateGridOverlay();
         };
         img.src = event.target.result;
       };
       reader.readAsDataURL(file);
     }
 
-    /* 🎨 自動採樣四個角落與邊緣取背景色 */
     function detectAutoBgColor() {
-      if (!currentImage) return '#ffffff';
-
+      if (!currentImage) return;
       const tempCvs = document.createElement('canvas');
-      const w = currentImage.width;
-      const h = currentImage.height;
-      tempCvs.width = w;
-      tempCvs.height = h;
+      const w = currentImage.width, h = currentImage.height;
+      tempCvs.width = w; tempCvs.height = h;
       const tCtx = tempCvs.getContext('2d');
       tCtx.drawImage(currentImage, 0, 0);
 
-      const samplePoints = [
-        {x: Math.floor(w * 0.02), y: Math.floor(h * 0.02)},
-        {x: Math.floor(w * 0.98), y: Math.floor(h * 0.02)},
-        {x: Math.floor(w * 0.02), y: Math.floor(h * 0.98)},
-        {x: Math.floor(w * 0.98), y: Math.floor(h * 0.98)}
-      ];
-
-      let rSum = 0, gSum = 0, bSum = 0, validSamples = 0;
-
-      samplePoints.forEach(p => {
-        const pixel = tCtx.getImageData(p.x, p.y, 1, 1).data;
-        if (pixel[3] > 128) {
-          rSum += pixel[0];
-          gSum += pixel[1];
-          bSum += pixel[2];
-          validSamples++;
-        }
-      });
-
-      if (validSamples === 0) return '#ffffff';
-
-      const avgR = Math.round(rSum / validSamples);
-      const avgG = Math.round(gSum / validSamples);
-      const avgB = Math.round(bSum / validSamples);
-
-      const hex = "#" + ((1 << 24) + (avgR << 16) + (avgG << 8) + avgB).toString(16).slice(1);
+      const p = tCtx.getImageData(Math.floor(w * 0.02), Math.floor(h * 0.02), 1, 1).data;
+      const hex = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
       document.getElementById('bgColor').value = hex;
-      return hex;
     }
 
     function drawCanvas() {
@@ -596,6 +561,222 @@
       mainCanvas.width = currentImage.width;
       mainCanvas.height = currentImage.height;
       ctx.drawImage(currentImage, 0, 0);
+    }
+
+    /* ⚡ 核心功能：產生畫布上的動態可拉伸網格 (Grid Overlay) */
+    function generateGridOverlay() {
+      if (!currentImage) return;
+      gridOverlay.innerHTML = '';
+      gridBoxesData = [];
+      savedStickers = [];
+
+      const mode = document.getElementById('gridMode').value;
+      let cols = 5, rows = 8;
+      if (mode === '4x4') { cols = 4; rows = 4; }
+      else if (mode === 'custom') {
+        cols = parseInt(customColsInput.value) || 1;
+        rows = parseInt(customRowsInput.value) || 1;
+      }
+
+      const cellW = currentImage.width / cols;
+      const cellH = currentImage.height / rows;
+      let index = 0;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          index++;
+          const boxData = {
+            id: index - 1,
+            x: Math.floor(c * cellW),
+            y: Math.floor(r * cellH),
+            w: Math.floor(cellW),
+            h: Math.floor(cellH)
+          };
+          gridBoxesData.push(boxData);
+          createDOMBox(boxData);
+          
+          // 初始化替換第一輪貼圖
+          processSingleBoxToSticker(boxData.id);
+        }
+      }
+      updatePreview();
+    }
+
+    /* 建立畫布上的 DOM 邊框（支援動態拖拉與縮放） */
+    function createDOMBox(box) {
+      const boxDiv = document.createElement('div');
+      boxDiv.className = 'grid-box';
+      boxDiv.id = `grid-box-${box.id}`;
+      boxDiv.style.left = `${box.x}px`;
+      boxDiv.style.top = `${box.y}px`;
+      boxDiv.style.width = `${box.w}px`;
+      boxDiv.style.height = `${box.h}px`;
+
+      const label = document.createElement('div');
+      label.className = 'box-label';
+      label.innerText = String(box.id + 1).padStart(3, '0');
+      boxDiv.appendChild(label);
+
+      // 設定邊界拉伸 (Resize) 樣式
+      boxDiv.style.resize = 'both';
+      boxDiv.style.overflow = 'hidden';
+
+      // 監聽拖曳與縮放事件，實現「即時替換已裁切圖片」
+      let isDragging = false;
+      let startX, startY, initialX, initialY;
+
+      boxDiv.addEventListener('mousedown', (e) => {
+        // 如果點擊邊框右下角拉伸，不觸發位移
+        if (e.offsetX > boxDiv.clientWidth - 10 && e.offsetY > boxDiv.clientHeight - 10) return;
+
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        initialX = box.x;
+        initialY = box.y;
+        e.stopPropagation();
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        box.x = Math.max(0, Math.min(currentImage.width - box.w, initialX + dx));
+        box.y = Math.max(0, Math.min(currentImage.height - box.h, initialY + dy));
+
+        boxDiv.style.left = `${box.x}px`;
+        boxDiv.style.top = `${box.y}px`;
+
+        // 即時覆蓋替換
+        processSingleBoxToSticker(box.id);
+      });
+
+      window.addEventListener('mouseup', () => { isDragging = false; });
+
+      // 監聽 Resize (改變大小)
+      const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+          box.w = Math.round(entry.contentRect.width);
+          box.h = Math.round(entry.contentRect.height);
+          processSingleBoxToSticker(box.id);
+        }
+      });
+      resizeObserver.observe(boxDiv);
+
+      gridOverlay.appendChild(boxDiv);
+    }
+
+    /* ⚡ 核心演算法：將單一格的邊框，即時轉為去背貼圖並「直接覆蓋」對應位置 */
+    function processSingleBoxToSticker(boxId) {
+      if (!currentImage || !gridBoxesData[boxId]) return;
+
+      const box = gridBoxesData[boxId];
+      const isTightMode = document.getElementById('smartAutoTight').checked;
+      const hex = document.getElementById('bgColor').value;
+      const toleranceVal = parseInt(document.getElementById('tolerance').value);
+      const tol = toleranceVal * 2.55;
+
+      const bgR = parseInt(hex.slice(1, 3), 16);
+      const bgG = parseInt(hex.slice(3, 5), 16);
+      const bgB = parseInt(hex.slice(5, 7), 16);
+
+      // 抓出區域原始畫布
+      const tempCvs = document.createElement('canvas');
+      tempCvs.width = box.w;
+      tempCvs.height = box.h;
+      const tCtx = tempCvs.getContext('2d');
+      tCtx.drawImage(currentImage, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+
+      let cropX = 0, cropY = 0, cropW = box.w, cropH = box.h;
+
+      // 如果開啟智慧緊縮，自動算邊緣
+      if (isTightMode && box.w > 5 && box.h > 5) {
+        const imgData = tCtx.getImageData(0, 0, box.w, box.h);
+        const data = imgData.data;
+
+        let minX = box.w, minY = box.h, maxX = 0, maxY = 0;
+        let hasObject = false;
+
+        for (let y = 0; y < box.h; y++) {
+          for (let x = 0; x < box.w; x++) {
+            const idx = (y * box.w + x) * 4;
+            const dist = Math.sqrt(
+              Math.pow(data[idx] - bgR, 2) +
+              Math.pow(data[idx+1] - bgG, 2) +
+              Math.pow(data[idx+2] - bgB, 2)
+            );
+
+            if (dist > tol) {
+              hasObject = true;
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        if (hasObject) {
+          const padding = 2;
+          cropX = Math.max(0, minX - padding);
+          cropY = Math.max(0, minY - padding);
+          cropW = Math.min(box.w - cropX, (maxX - minX) + padding * 2);
+          cropH = Math.min(box.h - cropY, (maxY - minY) + padding * 2);
+        }
+      }
+
+      const rawCropCvs = document.createElement('canvas');
+      rawCropCvs.width = cropW;
+      rawCropCvs.height = cropH;
+      const rawCtx = rawCropCvs.getContext('2d');
+      rawCtx.drawImage(currentImage, box.x + cropX, box.y + cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      const processCvs = document.createElement('canvas');
+      processCvs.width = cropW;
+      processCvs.height = cropH;
+      const pCtx = processCvs.getContext('2d');
+      pCtx.drawImage(rawCropCvs, 0, 0);
+
+      removeBg(pCtx, cropW, cropH, hex, toleranceVal);
+
+      const finalStickerCvs = createTargetCanvas(processCvs);
+
+      // ⚡ 直接覆蓋替換陣列中對應的項目！
+      savedStickers[boxId] = {
+        rawCanvas: rawCropCvs,
+        finalCanvas: finalStickerCvs
+      };
+
+      updatePreview();
+    }
+
+    /* 全域滑桿/參數更動時，重新批次更新所有格子 */
+    function reCalculateGridAndStickers() {
+      if (!currentImage || gridBoxesData.length === 0) return;
+      gridBoxesData.forEach(box => {
+        processSingleBoxToSticker(box.id);
+      });
+    }
+
+    function removeBg(cCtx, w, h, hex, toleranceVal) {
+      const imgData = cCtx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+      const tol = toleranceVal * 2.55;
+
+      const targetR = parseInt(hex.slice(1, 3), 16);
+      const targetG = parseInt(hex.slice(3, 5), 16);
+      const targetB = parseInt(hex.slice(5, 7), 16);
+
+      for (let i = 0; i < data.length; i += 4) {
+        const dist = Math.sqrt(
+          Math.pow(data[i] - targetR, 2) +
+          Math.pow(data[i+1] - targetG, 2) +
+          Math.pow(data[i+2] - targetB, 2)
+        );
+        if (dist <= tol) data[i + 3] = 0;
+      }
+      cCtx.putImageData(imgData, 0, 0);
     }
 
     function createTargetCanvas(sourceCvs, scalePct = 100, offsetX = 0, offsetY = 0) {
@@ -623,285 +804,30 @@
     }
 
     function createTabCanvas(sourceFinalCvs) {
-      const tabWidth = 96;
-      const tabHeight = 74;
-
       const tabCvs = document.createElement('canvas');
-      tabCvs.width = tabWidth;
-      tabCvs.height = tabHeight;
+      tabCvs.width = 96; tabCvs.height = 74;
       const tCtx = tabCvs.getContext('2d');
 
       tCtx.imageSmoothingEnabled = true;
       tCtx.imageSmoothingQuality = 'high';
 
-      const scale = Math.min(tabWidth / sourceFinalCvs.width, tabHeight / sourceFinalCvs.height);
+      const scale = Math.min(96 / sourceFinalCvs.width, 74 / sourceFinalCvs.height);
       const drawW = sourceFinalCvs.width * scale;
       const drawH = sourceFinalCvs.height * scale;
-      const offsetX = (tabWidth - drawW) / 2;
-      const offsetY = (tabHeight - drawH) / 2;
 
-      tCtx.drawImage(sourceFinalCvs, 0, 0, sourceFinalCvs.width, sourceFinalCvs.height, offsetX, offsetY, drawW, drawH);
+      tCtx.drawImage(sourceFinalCvs, 0, 0, sourceFinalCvs.width, sourceFinalCvs.height, (96 - drawW) / 2, (74 - drawH) / 2, drawW, drawH);
       return tabCvs;
-    }
-
-    function runAutoDetect() {
-      if (!currentImage) return alert('請先上傳圖片！');
-      detectAutoBgColor();
-      processGridSegmentation();
-    }
-
-    /* ⚡ 核心演算法：網格分區 + 智慧邊界緊縮 (絕不重複裁切) */
-    function processGridSegmentation() {
-      const mode = document.getElementById('gridMode').value;
-      let cols = 5, rows = 8;
-
-      if (mode === '4x4') { cols = 4; rows = 4; }
-      else if (mode === '5x8') { cols = 5; rows = 8; }
-      else if (mode === 'custom') {
-        cols = parseInt(customColsInput.value) || 1;
-        rows = parseInt(customRowsInput.value) || 1;
-      }
-
-      const cellW = currentImage.width / cols;
-      const cellH = currentImage.height / rows;
-      const isTightMode = document.getElementById('smartAutoTight').checked;
-
-      const hex = document.getElementById('bgColor').value;
-      const toleranceVal = parseInt(document.getElementById('tolerance').value);
-      const tol = toleranceVal * 2.55;
-
-      const bgR = parseInt(hex.slice(1, 3), 16);
-      const bgG = parseInt(hex.slice(3, 5), 16);
-      const bgB = parseInt(hex.slice(5, 7), 16);
-
-      drawCanvas();
-
-      ctx.strokeStyle = '#a78bfa';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 2]);
-
-      let count = 0;
-
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          count++;
-          if (savedStickers.length >= 40) break;
-
-          const gx = Math.floor(c * cellW);
-          const gy = Math.floor(r * cellH);
-          const gw = Math.floor(cellW);
-          const gh = Math.floor(cellH);
-
-          // 抓出當前小網格的圖片資料
-          const tempCvs = document.createElement('canvas');
-          tempCvs.width = gw;
-          tempCvs.height = gh;
-          const tCtx = tempCvs.getContext('2d');
-          tCtx.drawImage(currentImage, gx, gy, gw, gh, 0, 0, gw, gh);
-
-          let cropX = 0, cropY = 0, cropW = gw, cropH = gh;
-
-          // 若開啟「智慧緊縮邊界」，自動尋找真正的物體邊界邊框
-          if (isTightMode) {
-            const imgData = tCtx.getImageData(0, 0, gw, gh);
-            const data = imgData.data;
-
-            let minX = gw, minY = gh, maxX = 0, maxY = 0;
-            let hasObject = false;
-
-            for (let y = 0; y < gh; y++) {
-              for (let x = 0; x < gw; x++) {
-                const idx = (y * gw + x) * 4;
-                const dist = Math.sqrt(
-                  Math.pow(data[idx] - bgR, 2) +
-                  Math.pow(data[idx+1] - bgG, 2) +
-                  Math.pow(data[idx+2] - bgB, 2)
-                );
-
-                if (dist > tol) {
-                  hasObject = true;
-                  if (x < minX) minX = x;
-                  if (x > maxX) maxX = x;
-                  if (y < minY) minY = y;
-                  if (y > maxY) maxY = y;
-                }
-              }
-            }
-
-            if (hasObject) {
-              const padding = 4; // 留 4px 安全緩衝
-              cropX = Math.max(0, minX - padding);
-              cropY = Math.max(0, minY - padding);
-              cropW = Math.min(gw - cropX, (maxX - minX) + padding * 2);
-              cropH = Math.min(gh - cropY, (maxY - minY) + padding * 2);
-            }
-          }
-
-          // 畫出畫布上的偵測框
-          ctx.strokeRect(gx + cropX, gy + cropY, cropW, cropH);
-
-          ctx.fillStyle = '#8b5cf6';
-          ctx.fillRect(gx + cropX, gy + cropY, 22, 18);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 11px sans-serif';
-          ctx.fillText(count, gx + cropX + 4, gy + cropY + 13);
-
-          // 產生獨立的小貼圖
-          const rawCropCvs = document.createElement('canvas');
-          rawCropCvs.width = cropW;
-          rawCropCvs.height = cropH;
-          const rawCtx = rawCropCvs.getContext('2d');
-          rawCtx.drawImage(currentImage, gx + cropX, gy + cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-          const processCvs = document.createElement('canvas');
-          processCvs.width = cropW;
-          processCvs.height = cropH;
-          const pCtx = processCvs.getContext('2d');
-          pCtx.drawImage(rawCropCvs, 0, 0);
-
-          removeBg(pCtx, cropW, cropH, hex, toleranceVal);
-
-          const finalStickerCvs = createTargetCanvas(processCvs);
-          addSticker(rawCropCvs, finalStickerCvs);
-        }
-      }
-
-      ctx.setLineDash([]);
-      scrollToPreview();
-    }
-
-    let selectionBox = null;
-    mainCanvas.addEventListener('mousedown', startSelect);
-    mainCanvas.addEventListener('mousemove', drawSelect);
-    mainCanvas.addEventListener('mouseup', endSelect);
-
-    function startSelect(e) {
-      if (!currentImage) return;
-      const rect = mainCanvas.getBoundingClientRect();
-      const scaleX = mainCanvas.width / rect.width;
-      const scaleY = mainCanvas.height / rect.height;
-
-      startX = (e.clientX - rect.left) * scaleX;
-      startY = (e.clientY - rect.top) * scaleY;
-      isDrawing = true;
-
-      if (!selectionBox) {
-        selectionBox = document.createElement('div');
-        selectionBox.className = 'selection-box';
-        canvasWrapper.appendChild(selectionBox);
-      }
-    }
-
-    function drawSelect(e) {
-      if (!isDrawing) return;
-      const rect = mainCanvas.getBoundingClientRect();
-      const scaleX = mainCanvas.width / rect.width;
-      const scaleY = mainCanvas.height / rect.height;
-
-      endX = (e.clientX - rect.left) * scaleX;
-      endY = (e.clientY - rect.top) * scaleY;
-
-      const left = Math.min(startX, endX) / scaleX;
-      const top = Math.min(startY, endY) / scaleY;
-      const width = Math.abs(endX - startX) / scaleX;
-      const height = Math.abs(endY - startY) / scaleY;
-
-      selectionBox.style.left = `${left + mainCanvas.offsetLeft}px`;
-      selectionBox.style.top = `${top + mainCanvas.offsetTop}px`;
-      selectionBox.style.width = `${width}px`;
-      selectionBox.style.height = `${height}px`;
-
-      document.getElementById('manualCropBtn').disabled = false;
-    }
-
-    function endSelect() { isDrawing = false; }
-
-    function cropManualSelection() {
-      if (!currentImage || Math.abs(endX - startX) < 10) return;
-
-      const x = Math.min(startX, endX);
-      const y = Math.min(startY, endY);
-      const w = Math.abs(endX - startX);
-      const h = Math.abs(endY - startY);
-
-      const rawCropCvs = document.createElement('canvas');
-      rawCropCvs.width = w;
-      rawCropCvs.height = h;
-      const cCtx = rawCropCvs.getContext('2d');
-      cCtx.drawImage(currentImage, x, y, w, h, 0, 0, w, h);
-
-      const processCvs = document.createElement('canvas');
-      processCvs.width = w;
-      processCvs.height = h;
-      const pCtx = processCvs.getContext('2d');
-      pCtx.drawImage(rawCropCvs, 0, 0);
-
-      const hex = document.getElementById('bgColor').value;
-      const tol = parseInt(document.getElementById('tolerance').value);
-      removeBg(pCtx, w, h, hex, tol);
-
-      const finalStickerCvs = createTargetCanvas(processCvs);
-      addSticker(rawCropCvs, finalStickerCvs);
-
-      if (selectionBox) selectionBox.remove();
-      selectionBox = null;
-      document.getElementById('manualCropBtn').disabled = true;
-      scrollToPreview();
-    }
-
-    function removeBg(cCtx, w, h, hex, toleranceVal) {
-      const imgData = cCtx.getImageData(0, 0, w, h);
-      const data = imgData.data;
-      const tol = toleranceVal * 2.55;
-
-      const targetR = parseInt(hex.slice(1, 3), 16);
-      const targetG = parseInt(hex.slice(3, 5), 16);
-      const targetB = parseInt(hex.slice(5, 7), 16);
-
-      for (let i = 0; i < data.length; i += 4) {
-        const dist = Math.sqrt(
-          Math.pow(data[i] - targetR, 2) +
-          Math.pow(data[i+1] - targetG, 2) +
-          Math.pow(data[i+2] - targetB, 2)
-        );
-        if (dist <= tol) data[i + 3] = 0;
-      }
-      cCtx.putImageData(imgData, 0, 0);
-    }
-
-    function addSticker(rawCvs, finalCvs) {
-      if (savedStickers.length >= 40) return;
-      savedStickers.push({ rawCanvas: rawCvs, finalCanvas: finalCvs });
-      updatePreview();
-    }
-
-    function removeSticker(idx) {
-      savedStickers.splice(idx, 1);
-      updatePreview();
-    }
-
-    function clearStickersOnly() {
-      if (savedStickers.length === 0) return;
-      if (confirm('確定要清空所有已產生的貼圖嗎？（母圖將會保留）')) {
-        savedStickers = [];
-        updatePreview();
-      }
     }
 
     function updatePreview() {
       stickerGrid.innerHTML = '';
-      savedCountEl.innerText = savedStickers.length;
+      savedCountEl.innerText = savedStickers.filter(Boolean).length;
 
       savedStickers.forEach((item, idx) => {
+        if (!item) return;
+
         const stickerDiv = document.createElement('div');
         stickerDiv.className = 'sticker-item';
-        stickerDiv.draggable = true;
-        stickerDiv.dataset.index = idx;
-
-        stickerDiv.addEventListener('dragstart', handleDragStart);
-        stickerDiv.addEventListener('dragover', handleDragOver);
-        stickerDiv.addEventListener('drop', handleDrop);
-        stickerDiv.addEventListener('dragend', handleDragEnd);
 
         const img = document.createElement('img');
         img.src = item.finalCanvas.toDataURL('image/png');
@@ -912,19 +838,13 @@
 
         const editBtn = document.createElement('button');
         editBtn.className = 'edit-btn';
-        editBtn.innerText = '🪄 編輯';
-        editBtn.onclick = (e) => {
-          e.stopPropagation();
-          openEditModal(idx);
-        };
+        editBtn.innerText = '🪄 修邊';
+        editBtn.onclick = () => openEditModal(idx);
 
         const delBtn = document.createElement('button');
         delBtn.className = 'del-btn';
         delBtn.innerText = '✕';
-        delBtn.onclick = (e) => {
-          e.stopPropagation();
-          removeSticker(idx);
-        };
+        delBtn.onclick = () => removeSticker(idx);
 
         stickerDiv.appendChild(img);
         stickerDiv.appendChild(tag);
@@ -934,13 +854,31 @@
       });
     }
 
+    function removeSticker(idx) {
+      savedStickers.splice(idx, 1);
+      if (gridBoxesData[idx]) {
+        const boxElem = document.getElementById(`grid-box-${idx}`);
+        if (boxElem) boxElem.remove();
+        gridBoxesData.splice(idx, 1);
+      }
+      updatePreview();
+    }
+
+    function clearStickersOnly() {
+      if (confirm('確定要清空所有已產生的貼圖與網格嗎？')) {
+        savedStickers = [];
+        gridBoxesData = [];
+        gridOverlay.innerHTML = '';
+        updatePreview();
+      }
+    }
+
     const modalCanvas = document.getElementById('modalCanvas');
     const mCtx = modalCanvas.getContext('2d');
 
     function openEditModal(idx) {
       currentEditIndex = idx;
-      const modal = document.getElementById('editModal');
-      modal.style.display = 'flex';
+      document.getElementById('editModal').style.display = 'flex';
 
       modalCanvas.width = targetWidth;
       modalCanvas.height = targetHeight;
@@ -952,21 +890,18 @@
       document.getElementById('scaleSlider').value = 100;
       document.getElementById('offsetXSlider').value = 0;
       document.getElementById('offsetYSlider').value = 0;
-      document.getElementById('modalBgColor').value = document.getElementById('bgColor').value;
-      document.getElementById('modalTolerance').value = document.getElementById('tolerance').value;
-      document.getElementById('modalTolVal').innerText = document.getElementById('tolerance').value;
 
       updateModalRender();
     }
 
     function updateModalRender() {
-      if (currentEditIndex === null) return;
+      if (currentEditIndex === null || !savedStickers[currentEditIndex]) return;
 
       const scale = parseInt(document.getElementById('scaleSlider').value);
       const offsetX = parseInt(document.getElementById('offsetXSlider').value);
       const offsetY = parseInt(document.getElementById('offsetYSlider').value);
-      const hex = document.getElementById('modalBgColor').value;
-      const tol = parseInt(document.getElementById('modalTolerance').value);
+      const hex = document.getElementById('bgColor').value;
+      const tol = parseInt(document.getElementById('tolerance').value);
 
       document.getElementById('scaleVal').innerText = scale + '%';
       document.getElementById('offsetXVal').innerText = offsetX;
@@ -980,7 +915,6 @@
       pCtx.drawImage(rawCvs, 0, 0);
 
       removeBg(pCtx, rawCvs.width, rawCvs.height, hex, tol);
-
       const targetCvs = createTargetCanvas(processCvs, scale, offsetX, offsetY);
 
       mCtx.clearRect(0, 0, targetWidth, targetHeight);
@@ -994,18 +928,13 @@
       }
     }
 
-    modalCanvas.addEventListener('mousedown', startEraser);
-    modalCanvas.addEventListener('mousemove', drawEraser);
-    modalCanvas.addEventListener('mouseup', stopEraser);
-    modalCanvas.addEventListener('mouseleave', stopEraser);
-
-    function startEraser(e) {
-      isErasing = true;
-      drawEraser(e);
-    }
+    modalCanvas.addEventListener('mousedown', e => { isErasing = true; drawEraser(e); });
+    modalCanvas.addEventListener('mousemove', e => { if(isErasing) drawEraser(e); });
+    modalCanvas.addEventListener('mouseup', () => isErasing = false);
+    modalCanvas.addEventListener('mouseleave', () => isErasing = false);
 
     function drawEraser(e) {
-      if (!isErasing || !modalEraserCanvas) return;
+      if (!modalEraserCanvas) return;
       const rect = modalCanvas.getBoundingClientRect();
       const scaleX = targetWidth / rect.width;
       const scaleY = targetHeight / rect.height;
@@ -1023,12 +952,9 @@
       updateModalRender();
     }
 
-    function stopEraser() { isErasing = false; }
-
     function resetEraserLayer() {
       if (modalEraserCanvas) {
-        const eCtx = modalEraserCanvas.getContext('2d');
-        eCtx.clearRect(0, 0, targetWidth, targetHeight);
+        modalEraserCanvas.getContext('2d').clearRect(0, 0, targetWidth, targetHeight);
         updateModalRender();
       }
     }
@@ -1042,7 +968,6 @@
 
     function applyModalEdit() {
       if (currentEditIndex === null) return;
-
       const newFinalCvs = document.createElement('canvas');
       newFinalCvs.width = targetWidth;
       newFinalCvs.height = targetHeight;
@@ -1058,52 +983,23 @@
       currentEditIndex = null;
     }
 
-    function handleDragStart(e) {
-      draggedIndex = parseInt(this.dataset.index);
-      this.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    }
-
-    function handleDragOver(e) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-    }
-
-    function handleDrop(e) {
-      e.preventDefault();
-      const targetIndex = parseInt(this.dataset.index);
-      if (draggedIndex !== null && draggedIndex !== targetIndex) {
-        const draggedItem = savedStickers.splice(draggedIndex, 1)[0];
-        savedStickers.splice(targetIndex, 0, draggedItem);
-        updatePreview();
-      }
-    }
-
-    function handleDragEnd() {
-      this.classList.remove('dragging');
-      draggedIndex = null;
-    }
-
-    function scrollToPreview() {
-      stickerGrid.scrollIntoView({ behavior: 'smooth' });
-    }
-
     function downloadZip() {
-      if (savedStickers.length === 0) return alert('預覽區內沒有圖片可以下載！');
+      const validStickers = savedStickers.filter(Boolean);
+      if (validStickers.length === 0) return alert('預覽區內沒有圖片可以下載！');
 
       const zip = new JSZip();
       const type = document.getElementById('exportType').value;
       const folderName = type === 'emoji' ? 'LINE_Emoji' : 'LINE_Stickers';
       const folder = zip.folder(folderName);
 
-      savedStickers.forEach((item, idx) => {
+      validStickers.forEach((item, idx) => {
         const fileName = `${String(idx + 1).padStart(3, '0')}.png`;
         const base64 = item.finalCanvas.toDataURL('image/png').split(',')[1];
         folder.file(fileName, base64, { base64: true });
       });
 
-      if (type === 'emoji' && savedStickers.length > 0) {
-        const tabCvs = createTabCanvas(savedStickers[0].finalCanvas);
+      if (type === 'emoji' && validStickers.length > 0) {
+        const tabCvs = createTabCanvas(validStickers[0].finalCanvas);
         const tabBase64 = tabCvs.toDataURL('image/png').split(',')[1];
         folder.file("tab.png", tabBase64, { base64: true });
       }
@@ -1117,10 +1013,12 @@
     }
 
     function resetAll() {
-      if (confirm('確定要清空所有內容與已裁切的貼圖嗎？')) {
+      if (confirm('確定要全部重來嗎？')) {
         savedStickers = [];
+        gridBoxesData = [];
         currentImage = null;
         ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+        gridOverlay.innerHTML = '';
         placeholderText.style.display = 'block';
         updatePreview();
       }
