@@ -214,6 +214,22 @@
       margin-bottom: 12px;
     }
 
+    /* 背景預覽樣式類別 */
+    .bg-checkerboard {
+      background-image: linear-gradient(45deg, #1c1c22 25%, transparent 25%), 
+                        linear-gradient(-45deg, #1c1c22 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #1c1c22 75%), 
+                        linear-gradient(-45deg, transparent 75%, #1c1c22 75%);
+      background-size: 12px 12px;
+      background-color: #121216;
+    }
+    .bg-dark {
+      background: #121216 !important;
+    }
+    .bg-white {
+      background: #ffffff !important;
+    }
+
     .sticker-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
@@ -221,13 +237,8 @@
       max-height: 400px;
       overflow-y: auto;
       padding: 10px;
-      background: #121216;
       border-radius: 6px;
-      background-image: linear-gradient(45deg, #1c1c22 25%, transparent 25%), 
-                        linear-gradient(-45deg, #1c1c22 25%, transparent 25%), 
-                        linear-gradient(45deg, transparent 75%, #1c1c22 75%), 
-                        linear-gradient(-45deg, transparent 75%, #1c1c22 75%);
-      background-size: 12px 12px;
+      transition: background 0.3s;
     }
 
     .sticker-item {
@@ -340,16 +351,12 @@
       width: 220px;
       height: 220px;
       margin: 0 auto;
-      background-image: linear-gradient(45deg, #272730 25%, transparent 25%), 
-                        linear-gradient(-45deg, #272730 25%, transparent 25%), 
-                        linear-gradient(45deg, transparent 75%, #272730 75%), 
-                        linear-gradient(-45deg, transparent 75%, #272730 75%);
-      background-size: 12px 12px;
       border: 2px solid #8b5cf6;
       border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: background 0.3s;
     }
     #modalCanvas { cursor: crosshair; touch-action: none; max-width: 100%; max-height: 100%; object-fit: contain; }
 
@@ -379,12 +386,26 @@
 
   <div class="top-bar">
     <h1>田 CropAlpha 自由網格與單圖精確裁切工具</h1>
-    <div style="display:flex; align-items:center; gap:10px;">
-      <span style="font-size:13px; font-weight:bold; color:#a78bfa;">輸出類型：</span>
-      <select id="exportType" onchange="changeExportType()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold;">
-        <option value="emoji" selected>😊 表情貼 (180 × 180 + tab.png)</option>
-        <option value="sticker">🎨 標準貼圖 (370 × 320 px)</option>
-      </select>
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      
+      <!-- 👁 新增：檢視背景顏色切換 -->
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span style="font-size:13px; font-weight:bold; color:#a78bfa;">👁 檢視背景：</span>
+        <select id="viewBgMode" onchange="changeViewBgMode()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold; cursor:pointer;">
+          <option value="checkerboard" selected>🏁 棋盤格 (預設)</option>
+          <option value="dark">⬛ 深色背景 (查亮邊)</option>
+          <option value="white">⬜ 純白背景 (查暗邊)</option>
+        </select>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span style="font-size:13px; font-weight:bold; color:#a78bfa;">輸出類型：</span>
+        <select id="exportType" onchange="changeExportType()" style="background:#374151; color:#fff; border:none; padding:5px 8px; border-radius:4px; font-weight:bold; cursor:pointer;">
+          <option value="emoji" selected>😊 表情貼 (180 × 180 + tab.png)</option>
+          <option value="sticker">🎨 標準貼圖 (370 × 320 px)</option>
+        </select>
+      </div>
+
       <div class="badge">已儲存：<span id="savedCount">0</span> / 40 張</div>
     </div>
   </div>
@@ -437,8 +458,8 @@
       
       <p style="font-size: 12px; color: #9ca3af; line-height: 1.4; background:#272730; padding:8px; border-radius:4px;">
         💡 <b>提示：</b><br>
-        1. 調整全域容差會更新全部圖片。<br>
-        2. 點擊單圖的 <b>「🪄 修邊」</b>，即可<b>單獨調整該張圖的去背容差</b>與修邊細節！
+        1. 調整右上角 <b>「👁 檢視背景」</b> 可快速檢查去背是否有殘留瑕疵。<br>
+        2. 點擊單圖的 <b>「🪄 修邊」</b>，可<b>獨立調整容差與手動橡皮擦修邊</b>！
       </p>
       
       <hr style="border-color: #272730; margin: 5px 0;">
@@ -457,7 +478,8 @@
         <h3>已裁切圖案預覽</h3>
         <button class="btn-clear-preview" onclick="clearStickersOnly()">🗑 清空所有圖案</button>
       </div>
-      <div class="sticker-grid" id="stickerGrid"></div>
+      <!-- 預覽區格子預設載入 checkerboard 類別 -->
+      <div class="sticker-grid bg-checkerboard" id="stickerGrid"></div>
     </div>
   </div>
 
@@ -501,7 +523,8 @@
         <span style="font-size:12px; color:#9ca3af;">(容差微調與橡皮擦修邊)</span>
       </div>
 
-      <div class="modal-preview">
+      <!-- 修邊視窗預覽框，連動背景色 -->
+      <div class="modal-preview bg-checkerboard" id="modalPreviewBox">
         <canvas id="modalCanvas"></canvas>
       </div>
 
@@ -577,11 +600,34 @@
     const gridOverlay = document.getElementById('gridOverlay');
     const placeholderText = document.getElementById('placeholderText');
     const stickerGrid = document.getElementById('stickerGrid');
+    const modalPreviewBox = document.getElementById('modalPreviewBox');
     const savedCountEl = document.getElementById('savedCount');
 
     const customColsInput = document.getElementById('customCols');
     const customRowsInput = document.getElementById('customRows');
     const customTotalTag = document.getElementById('customTotalTag');
+
+    // 切換預覽背景顏色 (棋盤格/深色/白底)
+    function changeViewBgMode() {
+      const mode = document.getElementById('viewBgMode').value;
+      const bgClasses = ['bg-checkerboard', 'bg-dark', 'bg-white'];
+      
+      bgClasses.forEach(cls => {
+        stickerGrid.classList.remove(cls);
+        modalPreviewBox.classList.remove(cls);
+      });
+
+      if (mode === 'dark') {
+        stickerGrid.classList.add('bg-dark');
+        modalPreviewBox.classList.add('bg-dark');
+      } else if (mode === 'white') {
+        stickerGrid.classList.add('bg-white');
+        modalPreviewBox.classList.add('bg-white');
+      } else {
+        stickerGrid.classList.add('bg-checkerboard');
+        modalPreviewBox.classList.add('bg-checkerboard');
+      }
+    }
 
     function changeExportType() {
       const type = document.getElementById('exportType').value;
