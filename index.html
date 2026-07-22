@@ -139,10 +139,10 @@
       margin-bottom: 12px;
     }
 
-    /* 貼圖預覽網格 */
+    /* 貼圖預覽網格 (可拖拽排序) */
     .sticker-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
       gap: 12px;
       max-height: 400px;
       overflow-y: auto;
@@ -159,22 +159,34 @@
     .sticker-item {
       position: relative;
       background: rgba(255,255,255,0.05);
-      border: 1px solid #374151;
+      border: 2px solid #374151;
       border-radius: 6px;
       aspect-ratio: 1;
       display: flex;
       align-items: center;
       justify-content: center;
+      cursor: grab;
+      transition: transform 0.15s, border-color 0.15s;
     }
-    .sticker-item img { max-width: 90%; max-height: 90%; object-fit: contain; }
+    .sticker-item:active { cursor: grabbing; }
+    .sticker-item.dragging {
+      opacity: 0.4;
+      border-color: #8b5cf6;
+      transform: scale(0.95);
+    }
+    .sticker-item img { max-width: 85%; max-height: 85%; object-fit: contain; pointer-events: none; }
+    
     .sticker-item .idx-tag {
       position: absolute;
       top: 4px;
       left: 4px;
-      background: rgba(0,0,0,0.7);
-      font-size: 10px;
-      padding: 1px 4px;
+      background: rgba(0,0,0,0.75);
+      color: #60a5fa;
+      font-weight: bold;
+      font-size: 11px;
+      padding: 1px 5px;
       border-radius: 3px;
+      pointer-events: none;
     }
     .sticker-item .del-btn {
       position: absolute;
@@ -183,13 +195,14 @@
       background: #ef4444;
       color: white;
       border: none;
-      width: 18px;
-      height: 18px;
+      width: 20px;
+      height: 20px;
       border-radius: 50%;
       cursor: pointer;
-      font-size: 10px;
-      line-height: 18px;
+      font-size: 11px;
+      line-height: 20px;
       text-align: center;
+      z-index: 2;
     }
 
     .selection-box {
@@ -218,7 +231,6 @@
           <option value="custom">⚙ 自訂網格</option>
         </select>
 
-        <!-- 自訂網格輸入區塊 -->
         <div class="custom-grid-inputs" id="customGridInputs">
           <input type="number" id="customCols" value="6" min="1" max="20" title="欄數 (Cols)">
           <span>x</span>
@@ -260,7 +272,7 @@
     <!-- 下方累積預覽區 -->
     <div class="preview-section">
       <div class="preview-header">
-        <h3>已裁切貼圖預覽 (往下滑查看全部)</h3>
+        <h3>已裁切貼圖預覽 (可拖動卡片調整順序)</h3>
       </div>
       <div class="sticker-grid" id="stickerGrid"></div>
     </div>
@@ -271,6 +283,7 @@
     let currentImage = null;
     let isDrawing = false;
     let startX = 0, startY = 0, endX = 0, endY = 0;
+    let draggedIndex = null;
 
     const mainCanvas = document.getElementById('mainCanvas');
     const ctx = mainCanvas.getContext('2d');
@@ -279,7 +292,6 @@
     const stickerGrid = document.getElementById('stickerGrid');
     const savedCountEl = document.getElementById('savedCount');
 
-    // 監聽自訂網格輸入變更
     const customColsInput = document.getElementById('customCols');
     const customRowsInput = document.getElementById('customRows');
     const customTotalTag = document.getElementById('customTotalTag');
@@ -295,21 +307,15 @@
     function toggleGridMode() {
       const mode = document.getElementById('gridMode').value;
       const customInputs = document.getElementById('customGridInputs');
-      if (mode === 'custom') {
-        customInputs.style.display = 'flex';
-        updateCustomTotal();
-      } else {
-        customInputs.style.display = 'none';
-      }
+      customInputs.style.display = (mode === 'custom') ? 'flex' : 'none';
+      if (mode === 'custom') updateCustomTotal();
     }
 
-    // 初始化貼上 (Ctrl+V) 與 拖曳讀圖
+    // 貼上 (Ctrl+V) 與 拖曳讀圖
     window.addEventListener('paste', e => {
       const items = e.clipboardData.items;
       for (let item of items) {
-        if (item.type.indexOf('image') !== -1) {
-          loadImage(item.getAsFile());
-        }
+        if (item.type.indexOf('image') !== -1) loadImage(item.getAsFile());
       }
     });
 
@@ -344,9 +350,72 @@
       ctx.drawImage(currentImage, 0, 0);
     }
 
+    // --- 自動偵測貼圖 + 畫出分割線與數字 ---
+    function autoDetectGrid() {
+      if (!currentImage) return alert('請先上傳圖片！');
+
+      const mode = document.getElementById('gridMode').value;
+      let cols = 4, rows = 4;
+
+      if (mode === '4x4') { cols = 4; rows = 4; }
+      else if (mode === '5x8') { cols = 5; rows = 8; }
+      else if (mode === 'custom') {
+        cols = parseInt(customColsInput.value) || 1;
+        rows = parseInt(customRowsInput.value) || 1;
+      }
+
+      const cellW = currentImage.width / cols;
+      const cellH = currentImage.height / rows;
+
+      // 1. 重繪原圖
+      drawCanvas();
+
+      // 2. 裁切處理並在 Canvas 上繪製網格線條與編號
+      let count = 0;
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = Math.max(2, Math.floor(currentImage.width / 400));
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      
+      const fontSize = Math.max(14, Math.floor(cellH * 0.12));
+      ctx.font = `bold ${fontSize}px sans-serif`;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          count++;
+          
+          // 畫格子框
+          ctx.strokeRect(c * cellW, r * cellH, cellW, cellH);
+
+          // 畫左上角數字底塊與標號
+          const tagW = fontSize * 1.8;
+          const tagH = fontSize * 1.4;
+          ctx.fillRect(c * cellW, r * cellH, tagW, tagH);
+
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(count, c * cellW + (fontSize * 0.3), r * cellH + (fontSize * 1.0));
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // 恢復底色設置
+
+          // 執行圖片裁切加入
+          if (savedStickers.length < 40) {
+            const cropCvs = document.createElement('canvas');
+            cropCvs.width = cellW;
+            cropCvs.height = cellH;
+            const cCtx = cropCvs.getContext('2d');
+
+            cCtx.drawImage(currentImage, c * cellW, r * cellH, cellW, cellH, 0, 0, cellW, cellH);
+
+            if (document.getElementById('bgRemoveToggle').checked) {
+              removeBg(cCtx, cellW, cellH);
+            }
+            addSticker(cropCvs);
+          }
+        }
+      }
+      scrollToPreview();
+    }
+
     // --- 手動框選邏輯 ---
     let selectionBox = null;
-
     mainCanvas.addEventListener('mousedown', startSelect);
     mainCanvas.addEventListener('mousemove', drawSelect);
     mainCanvas.addEventListener('mouseup', endSelect);
@@ -392,48 +461,6 @@
 
     function endSelect() { isDrawing = false; }
 
-    // --- 自動偵測貼圖與切割 ---
-    function autoDetectGrid() {
-      if (!currentImage) return alert('請先上傳圖片！');
-
-      const mode = document.getElementById('gridMode').value;
-      let cols = 4;
-      let rows = 4;
-
-      if (mode === '4x4') {
-        cols = 4; rows = 4;
-      } else if (mode === '5x8') {
-        cols = 5; rows = 8;
-      } else if (mode === 'custom') {
-        cols = parseInt(customColsInput.value) || 1;
-        rows = parseInt(customRowsInput.value) || 1;
-      }
-
-      const cellW = currentImage.width / cols;
-      const cellH = currentImage.height / rows;
-
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (savedStickers.length >= 40) break;
-
-          const cropCvs = document.createElement('canvas');
-          cropCvs.width = cellW;
-          cropCvs.height = cellH;
-          const cCtx = cropCvs.getContext('2d');
-
-          cCtx.drawImage(currentImage, c * cellW, r * cellH, cellW, cellH, 0, 0, cellW, cellH);
-
-          if (document.getElementById('bgRemoveToggle').checked) {
-            removeBg(cCtx, cellW, cellH);
-          }
-
-          addSticker(cropCvs);
-        }
-      }
-      scrollToPreview();
-    }
-
-    // --- 手動裁切加入 ---
     function cropManualSelection() {
       if (!currentImage || Math.abs(endX - startX) < 10) return;
 
@@ -461,7 +488,7 @@
       scrollToPreview();
     }
 
-    // --- 去背邏輯 ---
+    // --- 去背處理 ---
     function removeBg(cCtx, w, h) {
       const imgData = cCtx.getImageData(0, 0, w, h);
       const data = imgData.data;
@@ -483,7 +510,7 @@
       cCtx.putImageData(imgData, 0, 0);
     }
 
-    // --- 貼圖管理與下載 ---
+    // --- 貼圖管理與 HTML5 拖拽排序 ---
     function addSticker(canvas) {
       if (savedStickers.length >= 40) return;
       savedStickers.push(canvas);
@@ -502,6 +529,14 @@
       savedStickers.forEach((cvs, idx) => {
         const item = document.createElement('div');
         item.className = 'sticker-item';
+        item.draggable = true;
+        item.dataset.index = idx;
+
+        // 拖拽事件綁定
+        item.addEventListener('dragstart', handleDragStart);
+        item.addEventListener('dragover', handleDragOver);
+        item.addEventListener('drop', handleDrop);
+        item.addEventListener('dragend', handleDragEnd);
 
         const img = document.createElement('img');
         img.src = cvs.toDataURL('image/png');
@@ -513,7 +548,10 @@
         const delBtn = document.createElement('button');
         delBtn.className = 'del-btn';
         delBtn.innerText = '✕';
-        delBtn.onclick = () => removeSticker(idx);
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
+          removeSticker(idx);
+        };
 
         item.appendChild(img);
         item.appendChild(tag);
@@ -522,10 +560,39 @@
       });
     }
 
+    // 拖動排序邏輯
+    function handleDragStart(e) {
+      draggedIndex = parseInt(this.dataset.index);
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      const targetIndex = parseInt(this.dataset.index);
+      if (draggedIndex !== null && draggedIndex !== targetIndex) {
+        // 移動陣列元素
+        const draggedItem = savedStickers.splice(draggedIndex, 1)[0];
+        savedStickers.splice(targetIndex, 0, draggedItem);
+        updatePreview(); // 重新整理編號與順序
+      }
+    }
+
+    function handleDragEnd() {
+      this.classList.remove('dragging');
+      draggedIndex = null;
+    }
+
     function scrollToPreview() {
       stickerGrid.scrollIntoView({ behavior: 'smooth' });
     }
 
+    // 打包 ZIP
     function downloadZip() {
       if (savedStickers.length === 0) return alert('預覽區內沒有圖片可以下載！');
 
